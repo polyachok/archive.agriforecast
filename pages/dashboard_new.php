@@ -12,8 +12,8 @@ require_once ROOT_PATH . '/classes/Organization.php';
 $user = new User();
 $current_user = $user->getUser($_SESSION['user_id']);
 $user_role = $_SESSION['role'];
-$device = new Device($current_year);
-$organization = new Organization($current_year);
+$device = new Device();
+$organization = new Organization();
 $devices = [];
 $filters = [
     'organization' => $_GET['organization'] ?? ''    
@@ -70,9 +70,8 @@ function checkForecast($device){
 
 <?php include ROOT_PATH . '/includes/header.php'; ?>
     <style>        
-        .sensor-widget {
-            /*width: 410px;
-            height: 180px;*/
+        .sensor-widget {            
+            height: 170px;
             border-radius: 10px;
             display: flex;
             overflow: hidden;
@@ -109,13 +108,7 @@ function checkForecast($device){
             margin-bottom: 2px;
             color: #6f6b6b;
             line-height: 1.2;
-        }
-        .sensor-date {
-            font-size: 12px;
-           /* color: rgba(255, 255, 255, 0.8);*/
-            margin-bottom: 8px;
-            line-height: 1.2;
-        }
+        }        
         .sensor-value-name {
             margin: 4px 0;
             color: #6f6b6b;
@@ -134,90 +127,6 @@ function checkForecast($device){
             color: #6f6b6b;
             margin-top: 8px;
             line-height: 1.2;
-        }
-        /* === КРУГОВАЯ ДИАГРАММА: SVG ВНУТРИ === */
-        .gauge-container {
-            position: relative;
-            width: 60px;
-            height: 60px;
-        }
-        .gauge-svg {
-            position: absolute;
-            top: 0px;
-            left: 3px;
-            width: 94%;
-            height: 100%;
-        }
-        .gauge-marks {
-            position: absolute;
-            width: 100%;
-            height: 100%;
-            top: 0;
-            left: 0;
-            pointer-events: none;
-            z-index: 3;
-        }
-        .gauge-mark {
-            position: absolute;
-            width: 2px;
-            height: 3px;
-            background: #5d5c5c;
-            left: 50%;
-            top: 0;
-            transform-origin: 50% 30px;
-            transform: translateX(-50%);
-        }
-        .gauge-value {
-            position: absolute;
-            top: 50%;
-            left: 53%;
-            transform: translate(-50%, -50%);
-            color: #6f6b6b;
-            font-weight: bold;
-            font-size: 14px;
-            z-index: 2;
-        }
-        /* === ТЕРМОМЕТР === */
-        .thermometer-container {
-            position: relative;
-            width: 40px;
-            height: 100px;
-        }
-        .thermometer {
-            width: 7px;
-            height: 50px;
-            border: 2px solid #6e7c7b;
-            border-radius: 10px;
-            position: absolute;
-            left: 15px;
-            bottom: 24px;
-            overflow: hidden;
-        }
-        .thermometer-bulb {
-            width: 17px;
-            height: 17px;
-            border: 2px solid #6e7c7b;
-            border-radius: 50%;
-            position: absolute;
-            bottom: 11px;
-            left: 10px;
-            background-color: #6e7c7b;
-        }
-        .thermometer-fill {
-            width: 100%;
-            background: #6e7c7b;
-            position: absolute;
-            bottom: 0;
-            transition: height 0.5s;
-        }
-        .thermometer-value {
-            position: absolute;
-           /* right: -19px;*/
-            margin-left: 26px;
-            top: 21px;
-            color: #6f6b6b;
-            font-weight: bold;
-            font-size: 15px;
         }
 
         /* === ЦВЕТА СТАТУСОВ === */
@@ -532,90 +441,40 @@ function checkForecast($device){
                         }
                     }         
                     foreach ($devices as $device): 
-                        print_r($device);          
-                        if($device['device_type'] == 'VP'):                            
-                            $soil_data = $dev->getPeriodSoilData($device['id'], $current_date); 
-                            $timezone = $_COOKIE['user_timezone'] ?? 'UTC';
-                            $average_humidity = '';
-                            $average_temp = '';
-                            $zone_status = '';
-                            $formattedDate = '-';               
-                            $formattedTime = '-';
-                            $last_data = null;
-                            $deviceError = '';
-                            if(!empty($soil_data)){
-                                $last_data = $soil_data[0]; 
-                                $humidity_count = $device['humidity_count'] ?? 0;
-                                $average_humidity = calculateAverage($last_data, $humidity_count, 'humidity_');
-                                $average_temp = calculateAverage($last_data, $humidity_count, 'temp_');
-                                $zone_humidity = calculateSum($last_data, $humidity_count, 'humidity_');
-                                $zone_status = getStatusClass($zone_humidity, $device);     
-                                $deviceError = checkDeviceError($last_data); 
-                                $dateTime = new DateTime("{$last_data['Date']} {$last_data['Time']}", new DateTimeZone('UTC'));
-                                $formattedDate = $dateTime->format('d.m.y');                
-                                $formattedTime = $dateTime->format('H:i'); 
-                            }
+                        if($device['device_type'] == 'VP'):  
+                            $device_years = $dev->getArchiveYear($device['id']);
+                           
                 ?>
                             <div class="column col-4 col-xs-12">                      
                                 <div class="sensor-widget status-inactive" 
-                                data-type="VP"
-                                data-humidity="<?php echo htmlspecialchars($average_humidity)?>" 
-                                data-temperature="<?php echo htmlspecialchars($average_temp)?>" 
-                                data-status="<?php echo htmlspecialchars($zone_status)?>" 
-                                data-device="<?php echo htmlspecialchars(json_encode($device)) ?>"
-                                data-last="<?php echo htmlspecialchars(json_encode($last_data)) ?>"
-                                data-status-text=""
-                                data-error="<?php echo htmlspecialchars(json_encode($deviceError)) ?>">
+                                data-type="VP">                                
                                     <div class="left-panel">
                                         <div>
                                             <p class="sensor-name"><?php echo htmlspecialchars($device['name']); ?></p>
-                                            <p class="sensor-date">Данные от: <?php echo htmlspecialchars($formattedDate);?> в <?php echo htmlspecialchars($formattedTime); ?></p>
                                         </div>
                                         <div>
-                                            <p class="sensor-value-name">Влажн. почвы: <span class="sensor-value humidity-value"></span></p>
-                                            <p class="sensor-value-name" style="display:none">Темп. почвы: <span class="sensor-value temp-value"></span></p>
+                                        <select class="form-select year-selector" data-device-id="<?= $device['id'] ?>" name="year">                                       
+                                            <option value="0" selected>Выберите год</option>
+                                            <?php foreach ($device_years[0] as $item):?>                                            
+                                                <option value="<?= safeHtml($item) ?>">
+                                                    <?=safeHtml($item)?>
+                                                </option>
+                                            <?php endforeach; ?>
+                                        </select> 
                                         </div>
                                         <div>
                                             <p class="sensor-status"></p>
                                         </div>
                                     </div>
                                     <div class="right-panel">
-                                        <!-- Круговая диаграмма -->
-                                        <div class="gauge-container">
-                                            <svg class="gauge-svg" viewBox="0 0 60 60">                                      
-                                                <circle
-                                                    cx="30"
-                                                    cy="30"
-                                                    r="26"
-                                                    fill="none"
-                                                    stroke="#6e7c7b"
-                                                    stroke-width="3"
-                                                    stroke-linecap="round"
-                                                    stroke-dasharray="163.36"
-                                                    stroke-dashoffset="163.36"
-                                                    class="humidity-gauge"
-                                                    transform="rotate(-90 30 30)"
-                                                />
-                                            </svg>
-                                            <div class="gauge-marks"></div>
-                                            <div class="gauge-value">65%</div>
-                                        </div>
-                                        <!-- Термометр -->
-                                        <div class="thermometer-container">
-                                            <div class="thermometer">
-                                                <div class="thermometer-fill"></div>
-                                            </div>
-                                            <div class="thermometer-bulb"></div>
-                                            <div class="thermometer-value">24°C</div>
-                                        </div>
                                     </div>
                                 </div>
                             </div>
                         <?php elseif($device['device_type'] == 'M'):   
-                            $soil_data = $dev->getLastMeteoData($device['id'], $current_date);   
-                            $forecastValuesDay = $dev->getForecastValuesDay($device['id'], $current_date);
-                            $forecastValueWeek = $dev->getForecastValuesWeek($device['id'], $current_date);
-                            $forecastValueNow = $dev->getForecastValuesNow($device['id'], $current_date);
+                           /* $soil_data = $dev->getLastMeteoData($device['id']);   
+                            $forecastValuesDay = $dev->getForecastValuesDay($device['id']);
+                            $forecastValueWeek = $dev->getForecastValuesWeek($device['id']);
+                            $forecastValueNow = $dev->getForecastValuesNow($device['id']);
                             $timezone = $_COOKIE['user_timezone'] ?? 'UTC';  
                             $formattedDate = '';                
                             $formattedTime = '';
@@ -644,281 +503,29 @@ function checkForecast($device){
                                 $wind = getWind($last_data['wind_direction']);
                                 $wind_speed = $last_data['wind_speed'] .' м/с';
                                 $humidity_value = isset($last_data['humidity']) ? round($last_data['humidity']) .' %' : '-';
-                            }                   
+                            }      */             
                         ?>      
-                            <div class="column col-4 col-xs-12">                      
-                                <div class="meteo-sensor-widget status-info"  
-                                    data-type="M"                     
-                                    data-device="<?php echo htmlspecialchars(json_encode($device)) ?> "
-                                    data-last="<?php echo htmlspecialchars(json_encode($soil_data)) ?> "
-                                    data-time="<?php echo htmlspecialchars($ref_time) ?>"
-                                >
-                                    <div class="meteo-left-panel">
-                                        <!-- Верхняя часть -->
-                                        <div class="meteo-top-section">
-                                            <!-- Левый верхний блок (имя и дата) -->
-                                            <div class="meteo-left-top">
-                                                <p class="meteo-name"><?php echo htmlspecialchars($device['name']); ?></p>
-                                                <p class="meteo-date"><?php echo htmlspecialchars($formattedDate);?> <?php echo htmlspecialchars($formattedTime); ?></p>
-                                            </div>                                                
-                                        </div>  
-                                        <div class="meteo-middle-row">
-                                            <div class="meteo-center-section"> 
-                                                <div class="temp-left">
-                                                    💨 <?php echo htmlspecialchars($wind); ?> <?php echo htmlspecialchars($wind_speed); ?>
-                                                </div>
-                                                <div class="temp-right">
-                                                    💧 <?php echo htmlspecialchars($humidity_value); ?>
-                                                </div>                                                    
-                                            </div>
-
-                                            <!-- Правый верхний блок -->
-                                            <div class="meteo-right-top">
-                                                <div class="temp-container">
-                                                    <span class="current-temp"><?php echo htmlspecialchars($temp); ?></span>
-                                                    <?php echo $temp != '' ? '<span class="temp-unit">°C</span>' : '-'; ?>     
-                                                </div>    
-                                                <div class="weather-icon-big">
-                                                    <?php echo $humidity;?>
-                                                </div>
-                                            </div>
-                                        </div>                                         
-                                        <!-- Нижняя часть -->
-                                        <div class="meteo-bottom-section">                                                
-                                            <?php if(count($forecastValueWeek, COUNT_RECURSIVE) > 10):?>
-                                                <?php foreach($forecastValueWeek as $data):
-                                                    if($data['crain'] > 0){
-                                                        $tcc = $dev->getRainIcon($data['crain']);
-                                                    }else{
-                                                        $tcc = $dev->getCloudIcon($data['tcc']);
-                                                        $temp = htmlspecialchars($data['2t']) . '°C';
-                                                    }                                                      
-                                                    ?>
-                                                    <div class="daily-forecast-item">
-                                                        <div class="forecast-date">
-                                                            <?php getMonth($data['date']);?>
-                                                        </div>
-                                                        <div class="forecast-icon">
-                                                            <?php echo $tcc;?>
-                                                        </div>
-                                                        <div class="forecast-temp">
-                                                            <?php echo $temp;?>
-                                                        </div>
-                                                    </div>
-                                                <?php endforeach;?>
-                                                <?php else: ?>
-                                                <div class="weather-no-data">
-                                                    <p><?php echo checkForecast($device);?></p>
-                                                </div>
-                                                <?php endif; ?>  
-                                        </div>
-                                    </div>                                        
-                                    <div class="meteo-right-panel">
-                                        <?php if(!empty($forecastValuesDay)): ?>
-                                            <?php 
-                                            // Берем первые 4 элемента для отображения
-                                            $items = array_slice($forecastValuesDay, 0, 4);
-                                            foreach($items as $data):?>
-                                                <div class="time-forecast-item">
-                                                    <!-- Левая часть элемента -->
-                                                    <div class="time-item-left">
-                                                        <div class="forecast-time">
-                                                            <?php 
-                                                            if(isset($data['ref_time'])) {
-                                                                $forecastDateTime = new DateTime($data['ref_time'], new DateTimeZone('UTC'));
-                                                                echo $forecastDateTime->format('H:i');
-                                                            } else {
-                                                                echo '-';
-                                                            }
-                                                            ?>
-                                                        </div>
-                                                        <div class="forecast-icon-small">
-                                                            <?php 
-                                                            if($data['parameters']['crain'] > 0){
-                                                                echo $dev->getRainIcon($data['parameters']['crain']);
-                                                            }else{
-                                                                $tcc = isset($data['parameters']['tcc']) ? $data['parameters']['tcc'] : null;
-                                                                echo $dev->getCloudIcon($tcc);    
-                                                            }
-                                                            ?>
-                                                        </div>
-                                                    </div>
-                                                    
-                                                    <!-- Правая часть элемента -->
-                                                    <div class="time-item-right">
-                                                        <?php 
-                                                        if(isset($data['parameters']['2t'])) {
-                                                            echo round($data['parameters']['2t']) . '°C';
-                                                        } else {
-                                                            echo '-°C';
-                                                        }
-                                                        ?>
-                                                    </div>
-                                                </div>
-                                            <?php endforeach; ?>
-                                        <?php else: ?>
-                                            <div class="weather-no-data">
-                                                <p><?php echo checkForecast($device);?></p>
-                                            </div>
-                                        <?php endif; ?>
-                                    </div>
-                                </div>
-                            </div>       
+                               
                         <?php endif;?>
                     <?php endforeach; ?>
             </div>
         </div>
     </div>
-    </div>
-   
+    </div>    
     <script src="/assets/js/main.js"></script>
     <script>
-        function isYesterday(dateString) {           
-            const targetDate = new Date(dateString);
-            const currentDate = new Date();
-            // Разница в миллисекундах
-            const timeDiff = currentDate - targetDate;
-            // 24 часа в миллисекундах
-            const twentyFourHours = 24 * 60 * 60 * 1000;
-            return timeDiff > twentyFourHours;
-        }
-
-        // Генерация рисок для всех гейджей
-        document.querySelectorAll('.gauge-container').forEach(container => {
-            const gaugeMarks = container.querySelector('.gauge-marks');
-            for (let i = 0; i < 36; i++) {
-                const mark = document.createElement('div');
-                mark.className = 'gauge-mark';
-                mark.style.transform = `rotate(${i * 10}deg)`;
-                gaugeMarks.appendChild(mark);
-            }
-        });
-
-        // Функция обновления одного виджета
-        function updateWidget(widget) {
-            if (widget.dataset.type == 'VP'){    
-                let humidity = `${Math.ceil(parseFloat(widget.dataset.humidity))}%`;
-                let humudityPercent = Math.ceil(parseFloat(widget.dataset.humidity));
-                let temperature = `${parseFloat(widget.dataset.temperature)}°C`;
-                let temperaturePercent = parseFloat(widget.dataset.temperature);
-                let status = widget.dataset.status;
-                let statusText = widget.dataset.statusText;
-                let humidity_status;
-                let status_text;
-                let dataDate;
-                if(widget.dataset.last != 'null'){
-                    let widgetData = JSON.parse(widget.dataset.last)                    
-                    dataDate = widgetData.Date + ' ' + widgetData.Time;                    
-                }else{
-                    status = 'inactive'; 
-                }
-                
-                if (isYesterday(dataDate)) {
-                   // status = 'inactive';           
-                }
-            
-                if(status != 'inactive'){
-                    if (widget.dataset.error == 'true'){
-                        status = 'error';
+        document.addEventListener('DOMContentLoaded', function () {            
+            document.querySelectorAll('.year-selector').forEach(select => {
+                select.addEventListener('change', function () {
+                    const deviceId = this.dataset.deviceId;
+                    const year = this.value;
+                    if (year && year !== '0') {
+                        window.location.href = `/pages/device_forecast.php?device_id=${deviceId}&year=${year}`;
                     }
-                }
-
-                switch (status) {
-                    case 'normal':
-                        humidity_status = 'в норме';
-                        status_text = 'Полив не требуется';                
-                        break;
-                    case 'info':
-                        humidity_status = 'высокая';
-                        status_text = 'Почва переувлажнена';                
-                        break;
-                    case 'warning':
-                        humidity_status = 'низкая';
-                        status_text = 'Требуется скорый полив';                
-                        break;
-                    case 'danger':
-                        humidity_status = 'критич';
-                        status_text = 'Требуется срочный полив';                
-                        break;
-                    case 'inactive':
-                        humidity_status = '-';
-                        status_text = 'Устройство не активно';  
-                        temperature = '-'; 
-                        humidity = '-';
-                        humudityPercent = 0;
-                        temperaturePercent = 0;
-                        break;
-                    case 'error':
-                        humidity_status = '✖';
-                        status_text = 'Устройство не исправно';  
-                        temperature = '✖'; 
-                        humidity = '✖';
-                        humudityPercent = 0;
-                        temperaturePercent = 0;
-                        break;    
-                }
-            
-                // Обновляем текст
-                widget.querySelector('.humidity-value').textContent = humidity_status;
-                widget.querySelector('.temp-value').textContent = temperature;
-                widget.querySelector('.gauge-value').textContent = humidity;
-                widget.querySelector('.thermometer-value').textContent = temperature;
-                widget.querySelector('.sensor-status').textContent = status_text;
-
-
-                // Обновляем круговую диаграмму
-                const circumference = 2 * Math.PI * 26;
-                const offset = circumference * (1 - humudityPercent / 100);
-                const gauge = widget.querySelector('.humidity-gauge');
-                gauge.setAttribute('stroke-dashoffset', offset.toFixed(2));
-
-                // Обновляем термометр
-                const tempFill = widget.querySelector('.thermometer-fill');
-                const fillHeight = (temperaturePercent / 50) * 50; // Макс. 50°C → 50px
-                tempFill.style.height = `${fillHeight}px`;
-
-                // Обновляем цвет статуса
-                const statusClasses = ['status-normal', 'status-warning', 'status-danger', 'status-info', 'status-inactive', 'status-error'];
-                
-                widget.classList.remove(...statusClasses);
-                widget.classList.add('status-' + (status || 'inactive'));
-            }  else {
-
-            }          
-        }
-        
-        // Инициализация всех виджетов
-        document.querySelectorAll('.sensor-widget').forEach(widget => {
-            
-            updateWidget(widget);
-            widget.addEventListener('click', function(e) {
-                // Получаем данные устройства
-                let deviceData = JSON.parse(this.dataset.device);
-                let lastData = JSON.parse(this.dataset.last);  
-                window.open(`/pages/device_forecast.php?device_id=${deviceData.id}&year=<?=$current_year?>&date=<?=$current_date?>`, '_self');
-                // Показываем модальное окно
-               // showModal(deviceData, lastData);
+                });
             });
         });
-        document.querySelectorAll('.meteo-sensor-widget').forEach(meteo => {
-            meteo.addEventListener('click', function(e) {
-                // Получаем данные устройства
-                let deviceData = JSON.parse(this.dataset.device);
-                let lastData = JSON.parse(this.dataset.last);  
-                
-                window.open(`/pages/device_meteo.php?device_id=${deviceData.id}&year=<?=$current_year?>&date=<?=$current_date?>`, '_self');
-                // Показываем модальное окно
-               // showModal(deviceData, lastData);
-            });
-            let ref_time = meteo.dataset.time;
-           
-            if (isYesterday(ref_time) || ref_time == '') {
-                const statusClasses = ['status-normal', 'status-warning', 'status-danger', 'status-info', 'status-inactive', 'status-error'];
-                meteo.style.backgroundColor = 'rgba(195, 199, 201, 1)';         
-            }
-           
-        })
-</script>
-
+    </script>
+    
 </body>
 </html>

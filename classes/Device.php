@@ -241,17 +241,19 @@ class Device {
         }
     }
 
-    public function getDevicePeriod($device_id = null){
-        $sql = "SELECT MIN(DateReal) as start, MAX(DateReal) as finish FROM forecast.SoilSense";
-        if($device_id != null){
-            $stmt = $this->db->prepare("SELECT `device_id` FROM `devices` WHERE id = ?");
-            $stmt->execute([$device_id]);
-            $device = $stmt->fetch(PDO::FETCH_ASSOC);
-            $sql .= "AND UID = ".$device['device_id'];
-        }
-       
+    public function getDevicePeriod($year, $id){
+        $stmt = $this->db->prepare("SELECT `device_id` FROM `devices` WHERE id = ?");
+        $stmt->execute([$id]);
+        $device = $stmt->fetch(PDO::FETCH_ASSOC);
+        $sql = "SELECT 
+                    DATE_FORMAT(MIN(DateReal), '%Y-%m-%d') AS start,
+                    DATE_FORMAT(MAX(DateReal), '%Y-%m-%d') AS finish
+                FROM forecast.SoilSense
+                WHERE YEAR(DateReal) = ? 
+                AND UID = ?";
+
         $stmt = $this->db->prepare($sql);
-        $stmt->execute();
+        $stmt->execute([$year, $device['device_id']]);
         return $stmt->fetch(PDO::FETCH_ASSOC); 
     }
 
@@ -1190,29 +1192,9 @@ class Device {
         try {
             $soil_db = $this->getSoilDB();
 
-            $query = "SELECT 
-                        Date,
-                        Time,
-                        (COALESCE(C215, 0) + COALESCE(C230, 0) + COALESCE(C245, 0) + COALESCE(C260, 0)) / 4 AS humidity_accumulative,
-                        (COALESCE(C2115, 0) + COALESCE(C2130, 0) + COALESCE(C2145, 0) + COALESCE(C2160, 0)) / 4 AS humidity_5cm,
-                        (COALESCE(C2215, 0) + COALESCE(C2230, 0) + COALESCE(C2245, 0) + COALESCE(C2260, 0)) / 4 AS humidity_15cm,
-                        (COALESCE(C2315, 0) + COALESCE(C2330, 0) + COALESCE(C2345, 0) + COALESCE(C2360, 0)) / 4 AS humidity_25cm,
-                        (COALESCE(C2415, 0) + COALESCE(C2430, 0) + COALESCE(C2445, 0) + COALESCE(C2460, 0)) / 4 AS humidity_35cm,
-                        (COALESCE(C2515, 0) + COALESCE(C2530, 0) + COALESCE(C2545, 0) + COALESCE(C2560, 0)) / 4 AS humidity_45cm,
-                        (COALESCE(C2615, 0) + COALESCE(C2630, 0) + COALESCE(C2645, 0) + COALESCE(C2660, 0)) / 4 AS humidity_55cm,
-
-                        (COALESCE(C2715, 0) + COALESCE(C2730, 0) + COALESCE(C2745, 0) + COALESCE(C2760, 0)) / 4 AS temp_5cm,
-                        (COALESCE(C2815, 0) + COALESCE(C2830, 0) + COALESCE(C2845, 0) + COALESCE(C2860, 0)) / 4 AS temp_15cm,
-                        (COALESCE(C2915, 0) + COALESCE(C2930, 0) + COALESCE(C2945, 0) + COALESCE(C2960, 0)) / 4 AS temp_25cm,
-                        (COALESCE(C3015, 0) + COALESCE(C3030, 0) + COALESCE(C3045, 0) + COALESCE(C3060, 0)) / 4 AS temp_35cm,
-                        (COALESCE(C3115, 0) + COALESCE(C3130, 0) + COALESCE(C3145, 0) + COALESCE(C3160, 0)) / 4 AS temp_45cm,
-                        (COALESCE(C3215, 0) + COALESCE(C3230, 0) + COALESCE(C3245, 0) + COALESCE(C3260, 0)) / 4 AS temp_55cm
-                    FROM SoilSense
-                    WHERE UID = ?
-                    AND Date BETWEEN ? AND DATE_ADD(?, INTERVAL 30 DAY)
-                    ORDER BY Date, Time";                    
+            $query = "SELECT DISTINCT YEAR(Date) as year FROM `soilsense` WHERE UID = ? ORDER BY year";                    
             $stmt = $soil_db->prepare($query);
-            $stmt->execute([$uid, $date, $date]);
+            $stmt->execute([$uid]);
             
             return $stmt->fetchAll(PDO::FETCH_ASSOC);
             

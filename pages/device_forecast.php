@@ -11,32 +11,18 @@ require_once ROOT_PATH . '/classes/User.php';
 define('MIN_PRECIPITATION_THRESHOLD', 0.16);
 
 $current_year = $_SESSION['year'];
-$user = new User($current_year);
+$user = new User();
+$device = new Device();
 
-if (isset($_GET['year']) && !empty($_GET['year'])) {
-    if($user->changeUserPeriod($_SESSION['username'], $_GET['year'])){
-        $current_year = $_SESSION['year'];
-        $user = new User($current_year);
-    }    
-}
+$user_period = $device->getDevicePeriod($current_year,$_GET['device_id']);
+print_r(getMonthsBetweenRu($user_period['start'], $user_period['finish']));
 
-$device = new Device($current_year);
-
-$user_period = $device->getDevicePeriod($_GET['device_id']);
 sscanf($user_period['start'], '%d-%d-%d', $yStart, $mStart, $dStart);
 sscanf($user_period['finish'], '%d-%d-%d', $yFinish, $mFinish, $dFinish);
 $current_date = $user_period['start'];
-if(isset($_GET['date']) && !empty($_GET['date'])){
-    if($current_date < $_GET['date']){
-        $current_date = DateTime::createFromFormat('Y-m-d', $_GET['date'])->format('Y-m-d');
-    }    
-    sscanf($_GET['date'], '%d-%d-%d', $yCurrent, $mCurrent, $dCurrent);
-
-}else{
-    $dCurrent = $dStart;
-    $mCurrent = $mStart;
-    $yCurrent = $yStart;
-}
+$dCurrent = $dStart;
+$mCurrent = $mStart;
+$yCurrent = $yStart;
 
 if (!isset($_GET['device_id'])) {
    // header("Location: devices.php?error=no_device");
@@ -44,6 +30,7 @@ if (!isset($_GET['device_id'])) {
 }
 
 $device_id = (int)$_GET['device_id'];
+$device_years = $device->getArchiveYear($device_id);
 $device_info = $device->getDevice($device_id);
 if($device_info){
     $latitude = '';
@@ -698,6 +685,44 @@ if($device_info){
     }
 }
 
+function getMonthsBetweenRu($startDate, $endDate) {
+    $monthsRu = [
+        '01' => 'Январь',
+        '02' => 'Февраль',
+        '03' => 'Март',
+        '04' => 'Апрель',
+        '05' => 'Май',
+        '06' => 'Июнь',
+        '07' => 'Июль',
+        '08' => 'Август',
+        '09' => 'Сентябрь',
+        '10' => 'Октябрь',
+        '11' => 'Ноябрь',
+        '12' => 'Декабрь',
+    ];
+
+    $start = new DateTime($startDate);
+    $end   = new DateTime($endDate);
+
+    $start->modify('first day of this month');
+    $end->modify('first day of this month');
+
+    $result = [];
+    $current = clone $start;
+
+    while ($current <= $end) {
+        $ym = $current->format('Y-m');          // ключ: '2025-04'
+        $m  = $current->format('m');            // '04'
+        $y  = $current->format('Y');            // '2025'
+
+        $label = $monthsRu[$m] . ' ' . $y;      // 'Апрель 2025'
+        $result[$ym] = $label;
+
+        $current->modify('+1 month');
+    }
+
+    return $result;
+}
 
 
 include ROOT_PATH . '/includes/header.php';
@@ -744,7 +769,7 @@ include ROOT_PATH . '/includes/header.php';
     </div>
     <div class="column col-9 col-xs-12">
         <h3 style="margin-bottom: 0;">Данные устройства <?= $device_info ? htmlspecialchars($device_info['name']) : '' ?></h3>
-        <button class="btn btn-link" onclick="window.location.href = '/pages/dashboard.php?date=<?=$current_date;?>'">
+        <button class="btn btn-link" onclick="window.location.href = '/pages/dashboard.php'">
             <i class="fas fa-arrow-left"></i> Назад к приборам
         </button>
         <?php if($device_info):?>

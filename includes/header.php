@@ -1,13 +1,16 @@
 <?php
 require_once __DIR__ . '/auth.php';
 
-$current_year = $_SESSION['year'];
+$scriptName = basename($_SERVER['PHP_SELF']);
+$current_year = $_GET['year'];
+
 $user = new User($current_year);
 
 
 
 $current_user = $user->getUser($_SESSION['user_id']);
 $user_period = $user->getUserPeriod($_SESSION['username']);
+
 
 ?>
 <!DOCTYPE html>
@@ -159,18 +162,20 @@ $user_period = $user->getUserPeriod($_SESSION['username']);
                 <i class="fas fa-tachometer-alt"></i><span class="hide-xs">Портал управления</span>
             </a>
         </section>
-        <section class="navbar-section">
-            <span class="mr-2 my-2 text-nowrap">Выберите период:</span>
-            <select class="form-select" id="device_order" style="width:35%;"
-                 onchange="updateYear(this.value)"
-            >
-                <?php foreach($user_period as $year): ?>    
-                <option value="<?=$year['year']?>" <?=$current_year == $year['year'] ? 'selected' : '' ?>><?=$year['year']?></option>
-                <?php endforeach;?>
-            </select>
-            <input class="form-select" type="text" id="datepicker" readonly placeholder="ДД.ММ.ГГГГ">
-        </section>
-
+        <?php if($scriptName == 'device_forecast.php'):?>
+            <section class="navbar-section">
+                
+                <span class="mr-2 my-2 text-nowrap">Выберите период:</span>
+                <select class="form-select" id="device_order" style="width:35%;"
+                    onchange="updateYear(this.value)"
+                >
+                    <?php foreach($device_years as $year): ?>    
+                    <option value="<?=$year['year']?>" <?=$current_year == $year['year'] ? 'selected' : '' ?>><?=$year['year']?></option>
+                    <?php endforeach;?>
+                </select>
+                <input class="form-select" type="text" id="datepicker" readonly placeholder="ДД.ММ.ГГГГ">
+            </section>
+        <?php endif;?>
         <section class="navbar-section">
             <div class="dropdown dropdown-right">
                 <a class="btn btn-link dropdown-toggle" tabindex="0">

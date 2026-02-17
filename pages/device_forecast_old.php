@@ -1,563 +1,704 @@
 <?php
-define('ROOT_PATH', '/var/www/html');
+
+define('ROOT_PATH', dirname(__DIR__));
+error_reporting(E_ALL);
+ini_set('display_errors', 1); 
+
 require_once ROOT_PATH . '/includes/auth.php';
 require_once ROOT_PATH . '/classes/Device.php';
 require_once ROOT_PATH . '/classes/User.php';
 
 define('MIN_PRECIPITATION_THRESHOLD', 0.16);
-$device = new Device();
+
+$current_year = $_SESSION['year'];
+$user = new User($current_year);
+
+if (isset($_GET['year']) && !empty($_GET['year'])) {
+    if($user->changeUserPeriod($_SESSION['username'], $_GET['year'])){
+        $current_year = $_SESSION['year'];
+        $user = new User($current_year);
+    }    
+}
+
+$device = new Device($current_year);
+
+$user_period = $device->getDevicePeriod($_GET['device_id']);
+sscanf($user_period['start'], '%d-%d-%d', $yStart, $mStart, $dStart);
+sscanf($user_period['finish'], '%d-%d-%d', $yFinish, $mFinish, $dFinish);
+$current_date = $user_period['start'];
+if(isset($_GET['date']) && !empty($_GET['date'])){
+    if($current_date < $_GET['date']){
+        $current_date = DateTime::createFromFormat('Y-m-d', $_GET['date'])->format('Y-m-d');
+    }    
+    sscanf($_GET['date'], '%d-%d-%d', $yCurrent, $mCurrent, $dCurrent);
+
+}else{
+    $dCurrent = $dStart;
+    $mCurrent = $mStart;
+    $yCurrent = $yStart;
+}
+
 if (!isset($_GET['device_id'])) {
-    header("Location: devices.php?error=no_device");
-    exit();
+   // header("Location: devices.php?error=no_device");
+    //exit();
 }
 
 $device_id = (int)$_GET['device_id'];
 $device_info = $device->getDevice($device_id);
-
-$yellow_zone_start = isset($device_info['yellow_zone_start']) ? $device_info['yellow_zone_start'] : 25;
-$green_zone_start = isset($device_info['green_zone_start']) ? $device_info['green_zone_start'] : 50;
-$blue_zone_start = isset($device_info['blue_zone_start']) ? $device_info['blue_zone_start'] : 75;
-$humidity_count = isset($device_info['humidity_count']) ? (int)$device_info['humidity_count'] : 3; // Default to 3 if not set
-
-if ($_SESSION['role'] == ROLE_USER && $device_info['organization_id'] != $_SESSION['organization_id']) {
-    header("Location: devices.php?error=no_permission");
-    exit();
-} elseif ($_SESSION['role'] == ROLE_DEALER) {
-    if ($device_info['organization_id'] != $_SESSION['organization_id']) {
-    //    header("Location: devices.php?error=no_permission");
-    //    exit();
+if($device_info){
+    $latitude = '';
+    $longitude = '';
+    if($device_info['coordinates']){
+        $coordinates = explode(',', $device_info['coordinates']);
+        $latitude = trim($coordinates[0]);  
+        $longitude = trim($coordinates[1]); 
     }
-}
 
-$show_soil_tab = (bool)$device_info['is_realdata_enabled'];
-$show_forecast_tab = (bool)$device_info['is_forecast_enabled'];
+    $yellow_zone_start = isset($device_info['yellow_zone_start']) ? $device_info['yellow_zone_start'] : 25;
+    $green_zone_start = isset($device_info['green_zone_start']) ? $device_info['green_zone_start'] : 50;
+    $blue_zone_start = isset($device_info['blue_zone_start']) ? $device_info['blue_zone_start'] : 75;
+    $humidity_count = isset($device_info['humidity_count']) ? (int)$device_info['humidity_count'] : 3; // Default to 3 if not set
 
-if (!$show_soil_tab && !$show_forecast_tab) {
-    header("Location: devices.php?error=no_data_available");
-    exit();
-}
-
-$soil_data = [];
-$forecast_values = [];
-
-if ($show_soil_tab) {
-    $soil_data = $device->getSoilData($device_id);
-    $unique_data = [];
-    foreach ($soil_data as $record) {
-        $key = $record['Date'] . ' ' . $record['Time'];
-        if (!isset($unique_data[$key])) {
-            $unique_data[$key] = $record;
+    if ($_SESSION['role'] == ROLE_USER && $device_info['organization_id'] != $_SESSION['organization_id']) {
+    // header("Location: devices.php?error=no_permission");
+    // exit();
+    } elseif ($_SESSION['role'] == ROLE_DEALER) {
+        if ($device_info['organization_id'] != $_SESSION['organization_id']) {
+        //    header("Location: devices.php?error=no_permission");
+        //    exit();
         }
     }
-    $soil_data = array_values($unique_data);
 
-    $now = new DateTime();
-    $overviewStartDate = $now->sub(new DateInterval('P30D'))->format('Y-m-d H:i:s');
-    $detailedStartDate = (new DateTime())->sub(new DateInterval('P7D'))->format('Y-m-d H:i:s');
+    $show_forecast_data = true;
+    $show_soil_tab = (bool)$device_info['is_realdata_enabled'];
+    $show_forecast_tab = (bool)$device_info['is_forecast_enabled'];
 
+    if (!$show_soil_tab && !$show_forecast_tab) {
+    //  header("Location: devices.php?error=no_data_available");
+    //  exit();
+    }
+
+    $soil_data = [];
+    $forecast_values = [];
+    
+    if ($show_soil_tab) {
+        $soil_data = $device->getSoilData($device_id, $current_date);  
+        
+        $unique_data = [];
+        foreach ($soil_data as $record) {
+            $key = $record['Date'] . ' ' . $record['Time'];
+            if (!isset($unique_data[$key])) {
+                $unique_data[$key] = $record;
+            }
+        }
+        $soil_data = array_values($unique_data);
+
+        $now = new DateTime();
+        $overviewStartDate = DateTime::createFromFormat('Y-m-d', $current_date)->add(new DateInterval('P30D'))->format('Y-m-d H:i:s');
+        $detailedStartDate = ( DateTime::createFromFormat('Y-m-d', $current_date))->add(new DateInterval('P7D'))->format('Y-m-d H:i:s');
+        if (!empty($soil_data)) {            
+            $soil_data = array_filter($soil_data, function($record) use ($overviewStartDate) {
+                $recordDate = $record['Date'] . ' ' . $record['Time'];
+                return strtotime($recordDate) <= strtotime($overviewStartDate);
+            });
+             
+            usort($soil_data, function($a, $b) {
+                $timeA = strtotime($a['Date'] . ' ' . $a['Time']);
+                $timeB = strtotime($b['Date'] . ' ' . $b['Time']);
+                return $timeA - $timeB;
+            });
+        }
+    }
+
+    if ($show_forecast_tab) {        
+        $yesterday = DateTime::createFromFormat('Y-m-d', $current_date)
+        ?->modify('-1 day')
+        ?->setTime(0, 0, 0)
+        ?->format('Y-m-d H:i:s');
+        $current_date = DateTime::createFromFormat('Y-m-d', $current_date)->format('Y-m-d');
+        $forecast_values = $device->getForecastValuesFromDate($device_id, $current_date, $yesterday);
+        if(empty($forecast_values)){
+            $device_forecast_period = $device->getForecastValuesPeriod($device_id);            
+        }
+    }
+
+    $soil_param_names = [
+        'humidity_5cm' => 'Влажность 5 см (%)',
+        'humidity_15cm' => 'Влажность 15 см (%)',
+        'humidity_25cm' => 'Влажность 25 см (%)',
+        'humidity_35cm' => 'Влажность 35 см (%)',
+        'humidity_45cm' => 'Влажность 45 см (%)',
+        'humidity_55cm' => 'Влажность 55 см (%)',
+        'humidity_accumulative' => 'Осадки (мм)',
+        'temp_5cm' => 'Температура 5 см (°C)',
+        'temp_15cm' => 'Температура 15 см (°C)',
+        'temp_25cm' => 'Температура 25 см (°C)',
+        'temp_35cm' => 'Температура 35 см (°C)',
+        'temp_45cm' => 'Температура 45 см (°C)',
+        'temp_55cm' => 'Температура 55 см (°C)'
+    ];
+
+    $soil_colors = [
+        'humidity_5cm' => 'rgba(54, 162, 235, 0.7)',
+        'humidity_15cm' => 'rgba(0, 123, 255, 0.7)',
+        'humidity_25cm' => 'rgba(0, 86, 179, 0.7)',
+        'humidity_35cm' => 'rgba(0, 56, 117, 0.7)',
+        'humidity_45cm' => 'rgba(0, 36, 87, 0.7)',
+        'humidity_55cm' => 'rgba(0, 20, 50, 0.7)',
+        'humidity_accumulative' => 'rgba(135, 206, 235, 0.6)',
+        'temp_5cm' => 'rgba(255, 99, 132, 0.7)',
+        'temp_15cm' => 'rgba(220, 53, 69, 0.7)',
+        'temp_25cm' => 'rgba(200, 35, 51, 0.7)',
+        'temp_35cm' => 'rgba(178, 24, 43, 0.7)',
+        'temp_45cm' => 'rgba(150, 10, 30, 0.7)',
+        'temp_55cm' => 'rgba(120, 0, 20, 0.7)'
+    ];
+
+    $soil_chart_data = [];
+   
     if (!empty($soil_data)) {
-        $soil_data = array_filter($soil_data, function($record) use ($overviewStartDate) {
-            $recordDate = $record['Date'] . ' ' . $record['Time'];
-            return strtotime($recordDate) >= strtotime($overviewStartDate);
-        });
-        
-        usort($soil_data, function($a, $b) {
-            $timeA = strtotime($a['Date'] . ' ' . $a['Time']);
-            $timeB = strtotime($b['Date'] . ' ' . $b['Time']);
-            return $timeA - $timeB;
-        });
-    }
-}
 
-if ($show_forecast_tab) {
-    $yesterday = date('Y-m-d 00:00:00', strtotime('-1 day'));
-    $forecast_values = $device->getForecastValuesFromDate($device_id, $yesterday);
-}
+        function getClientTimezone() {
+            if (isset($_SERVER['HTTP_CLIENT_TIMEZONE'])) {
+                return (int)$_SERVER['HTTP_CLIENT_TIMEZONE'];
+            }
+            return 3;
+        }
 
-$soil_param_names = [
-    'humidity_5cm' => 'Влажность 5 см (%)',
-    'humidity_15cm' => 'Влажность 15 см (%)',
-    'humidity_25cm' => 'Влажность 25 см (%)',
-    'humidity_35cm' => 'Влажность 35 см (%)',
-    'humidity_45cm' => 'Влажность 45 см (%)',
-    'humidity_55cm' => 'Влажность 55 см (%)',
-    'humidity_accumulative' => 'Осадки (мм)',
-    'temp_5cm' => 'Температура 5 см (°C)',
-    'temp_15cm' => 'Температура 15 см (°C)',
-    'temp_25cm' => 'Температура 25 см (°C)',
-    'temp_35cm' => 'Температура 35 см (°C)',
-    'temp_45cm' => 'Температура 45 см (°C)',
-    'temp_55cm' => 'Температура 55 см (°C)'
-];
+        function interpolateSoilData($soil_data) {
+            if (empty($soil_data) || count($soil_data) < 2) {
+                return $soil_data;
+            }
 
-$soil_colors = [
-    'humidity_5cm' => 'rgba(54, 162, 235, 0.7)',
-    'humidity_15cm' => 'rgba(0, 123, 255, 0.7)',
-    'humidity_25cm' => 'rgba(0, 86, 179, 0.7)',
-    'humidity_35cm' => 'rgba(0, 56, 117, 0.7)',
-    'humidity_45cm' => 'rgba(0, 36, 87, 0.7)',
-    'humidity_55cm' => 'rgba(0, 20, 50, 0.7)',
-    'humidity_accumulative' => 'rgba(135, 206, 235, 0.6)',
-    'temp_5cm' => 'rgba(255, 99, 132, 0.7)',
-    'temp_15cm' => 'rgba(220, 53, 69, 0.7)',
-    'temp_25cm' => 'rgba(200, 35, 51, 0.7)',
-    'temp_35cm' => 'rgba(178, 24, 43, 0.7)',
-    'temp_45cm' => 'rgba(150, 10, 30, 0.7)',
-    'temp_55cm' => 'rgba(120, 0, 20, 0.7)'
-];
-
-$soil_chart_data = [];
-
-if (!empty($soil_data)) {
-
-function getClientTimezone() {
-    if (isset($_SERVER['HTTP_CLIENT_TIMEZONE'])) {
-        return (int)$_SERVER['HTTP_CLIENT_TIMEZONE'];
-    }
-    return 3;
-}
-
-function interpolateSoilData($soil_data) {
-    if (empty($soil_data) || count($soil_data) < 2) {
-        return $soil_data;
-    }
-
-    $timezoneOffset = getClientTimezone();
-    
-    foreach ($soil_data as &$record) {
-        $timestamp = strtotime($record['Date'] . ' ' . $record['Time']);
-        $timestamp += $timezoneOffset * 3600;
-        $record['Date'] = date('Y-m-d', $timestamp);
-        $record['Time'] = date('H:i:s', $timestamp);
-    }
-    unset($record);
-    
-    usort($soil_data, function($a, $b) {
-        return strtotime($a['Date'] . ' ' . $a['Time']) - strtotime($b['Date'] . ' ' . $b['Time']);
-    });
-    
-    $interpolated_data = [];
-    $expected_interval = 3600; 
-    
-    for ($i = 0; $i < count($soil_data); $i++) {
-        $current_record = $soil_data[$i];
-        $interpolated_data[] = $current_record;
-        
-        if ($i < count($soil_data) - 1) {
-            $current_time = strtotime($current_record['Date'] . ' ' . $current_record['Time']);
-            $next_time = strtotime($soil_data[$i + 1]['Date'] . ' ' . $soil_data[$i + 1]['Time']);
-            $time_diff = $next_time - $current_time;
+            $timezoneOffset = getClientTimezone();
             
-            if ($time_diff > $expected_interval * 1.5) {
-                $missing_hours = round($time_diff / $expected_interval) - 1;
+            foreach ($soil_data as &$record) {
+                $timestamp = strtotime($record['Date'] . ' ' . $record['Time']);
+                $timestamp += $timezoneOffset * 3600;
+                $record['Date'] = date('Y-m-d', $timestamp);
+                $record['Time'] = date('H:i:s', $timestamp);
+            }
+            unset($record);
+            
+            usort($soil_data, function($a, $b) {
+                return strtotime($a['Date'] . ' ' . $a['Time']) - strtotime($b['Date'] . ' ' . $b['Time']);
+            });
+            
+            $interpolated_data = [];
+            $expected_interval = 3600; 
+            
+            for ($i = 0; $i < count($soil_data); $i++) {
+                $current_record = $soil_data[$i];
+                $interpolated_data[] = $current_record;
                 
-                for ($h = 1; $h <= $missing_hours; $h++) {
-                    $interpolated_time = $current_time + ($h * $expected_interval);
-                    $interpolated_record = [];
+                if ($i < count($soil_data) - 1) {
+                    $current_time = strtotime($current_record['Date'] . ' ' . $current_record['Time']);
+                    $next_time = strtotime($soil_data[$i + 1]['Date'] . ' ' . $soil_data[$i + 1]['Time']);
+                    $time_diff = $next_time - $current_time;
                     
-                    foreach ($current_record as $key => $value) {
-                        if ($key === 'Date') {
-                            $interpolated_record[$key] = date('Y-m-d', $interpolated_time);
-                        } elseif ($key === 'Time') {
-                            $interpolated_record[$key] = date('H:i:s', $interpolated_time);
-                        } elseif (is_numeric($value) && isset($soil_data[$i + 1][$key])) {
-                            $ratio = $h / ($missing_hours + 1);
-                            $interpolated_value = $value + ($soil_data[$i + 1][$key] - $value) * $ratio;
-                            $interpolated_record[$key] = max(0, $interpolated_value);
-                        } else {
-                            $interpolated_record[$key] = $value;
+                    if ($time_diff > $expected_interval * 1.5) {
+                        $missing_hours = round($time_diff / $expected_interval) - 1;
+                        
+                        for ($h = 1; $h <= $missing_hours; $h++) {
+                            $interpolated_time = $current_time + ($h * $expected_interval);
+                            $interpolated_record = [];
+                            
+                            foreach ($current_record as $key => $value) {
+                                if ($key === 'Date') {
+                                    $interpolated_record[$key] = date('Y-m-d', $interpolated_time);
+                                } elseif ($key === 'Time') {
+                                    $interpolated_record[$key] = date('H:i:s', $interpolated_time);
+                                } elseif (is_numeric($value) && isset($soil_data[$i + 1][$key])) {
+                                    $ratio = $h / ($missing_hours + 1);
+                                    $interpolated_value = $value + ($soil_data[$i + 1][$key] - $value) * $ratio;
+                                    $interpolated_record[$key] = max(0, $interpolated_value);
+                                } else {
+                                    $interpolated_record[$key] = $value;
+                                }
+                            }
+                            
+                            $interpolated_record['_interpolated'] = true;
+                            $interpolated_data[] = $interpolated_record;
                         }
                     }
-                    
-                    $interpolated_record['_interpolated'] = true;
-                    $interpolated_data[] = $interpolated_record;
                 }
             }
-        }
-    }
-    
-    return $interpolated_data;
-}
-    
-    $soil_data = interpolateSoilData($soil_data);
-    
-    $depth_params = [
-        '5cm' => ['offset' => 83.3, 'color_offset' => 0],
-        '15cm' => ['offset' => 66.6, 'color_offset' => 2],
-        '25cm' => ['offset' => 50, 'color_offset' => 4],
-        '35cm' => ['offset' => 33.3, 'color_offset' => 6],
-        '45cm' => ['offset' => 16.6, 'color_offset' => 8],
-        '55cm' => ['offset' => 0, 'color_offset' => 10],
-        'accumulativecm' => ['offset' => 0, 'color_offset' => 10]
-    ];
-
-    $param_extremes = [];
-    foreach ($soil_data as $record) {
-        foreach ($soil_param_names as $param => $name) {
-            if (isset($record[$param]) && is_numeric($record[$param])) {
-                $value = (float)$record[$param];
-                $param_type = strpos($param, 'humidity') !== false ? 'humidity' : 'temp';
-                $depth = str_replace(['humidity_', 'temp_', 'cm'], '', $param) . 'cm';
-                
-                if (!isset($param_extremes[$depth][$param_type])) {
-                    $param_extremes[$depth][$param_type] = ['min' => $value, 'max' => $value];
-                } else {
-                    if ($value < $param_extremes[$depth][$param_type]['min']) {
-                        $param_extremes[$depth][$param_type]['min'] = $value;
-                    }
-                    if ($value > $param_extremes[$depth][$param_type]['max']) {
-                        $param_extremes[$depth][$param_type]['max'] = $value;
-                    }
-                }
-            }
-        }
-    }
-
-    $precipitation_data_index = [];
-    foreach ($soil_data as $record) {
-        if (isset($record['humidity_accumulative']) && is_numeric($record['humidity_accumulative'])) {
-            $datetime = $record['Date'] . ' ' . $record['Time'];
-            $precipitation_data_index[$datetime] = (float)$record['humidity_accumulative'];
-        }
-    }
-
-    foreach ($soil_param_names as $param => $name) {
-        $is_humidity = strpos($param, 'humidity') !== false;
-        $param_type = $is_humidity ? 'humidity' : 'temp';
-        $depth = str_replace(['humidity_', 'temp_', 'cm'], '', $param) . 'cm';
-        
-        if (!isset($depth_params[$depth])) {
-            continue;
+            
+            return $interpolated_data;
         }
         
-        $depth_setting = $depth_params[$depth];
-        
+        $soil_data = interpolateSoilData($soil_data);
+        $depth_params = [
+            '5cm' => ['offset' => 83.3, 'color_offset' => 0],
+            '15cm' => ['offset' => 66.6, 'color_offset' => 2],
+            '25cm' => ['offset' => 50, 'color_offset' => 4],
+            '35cm' => ['offset' => 33.3, 'color_offset' => 6],
+            '45cm' => ['offset' => 16.6, 'color_offset' => 8],
+            '55cm' => ['offset' => 0, 'color_offset' => 10],
+            'accumulativecm' => ['offset' => 0, 'color_offset' => 10]
+        ];
+
+        $param_extremes = [];
         foreach ($soil_data as $record) {
-            $datetime = $record['Date'] . ' ' . $record['Time'];
-            $is_interpolated = isset($record['_interpolated']) && $record['_interpolated'];
-            
-            if ($param === 'humidity_accumulative') {
-                $original_value = isset($record[$param]) && is_numeric($record[$param]) ? (float)$record[$param] : 0;
-                
-                $soil_chart_data[$param][] = [
-                    'x' => $datetime,
-                    'y' => $original_value,
-                    'original' => $original_value,
-                    'depth' => 'precipitation',
-                    'type' => 'precipitation',
-                    'color_index' => 0,
-                    'has_data' => !$is_interpolated,
-                    'interpolated' => $is_interpolated
-                ];
-            } else {
+            foreach ($soil_param_names as $param => $name) {
                 if (isset($record[$param]) && is_numeric($record[$param])) {
-                    $original_value = (float)$record[$param];
+                    $value = (float)$record[$param];
+                    $param_type = strpos($param, 'humidity') !== false ? 'humidity' : 'temp';
+                    $depth = str_replace(['humidity_', 'temp_', 'cm'], '', $param) . 'cm';
                     
-                    if (isset($param_extremes[$depth][$param_type])) {
-                        $extremes = $param_extremes[$depth][$param_type];
-                        
-                        $range = max(5, $extremes['max'] - $extremes['min']);
-                        $normalized_value = (($original_value - $extremes['min']) / $range) * 15;
-                        
-                        $param_offset = $is_humidity ? 0 : 3;
-                        $normalized_value += $depth_setting['offset'] + $param_offset;
-                        
-                        $soil_chart_data[$param][] = [
-                            'x' => $datetime,
-                            'y' => $normalized_value,
-                            'original' => $original_value,
-                            'depth' => str_replace('cm', '', $depth),
-                            'type' => $param_type,
-                            'color_index' => $depth_setting['color_offset'] + ($is_humidity ? 0 : 1),
-                            'has_data' => !$is_interpolated,
-                            'interpolated' => $is_interpolated
-                        ];
+                    if (!isset($param_extremes[$depth][$param_type])) {
+                        $param_extremes[$depth][$param_type] = ['min' => $value, 'max' => $value];
+                    } else {
+                        if ($value < $param_extremes[$depth][$param_type]['min']) {
+                            $param_extremes[$depth][$param_type]['min'] = $value;
+                        }
+                        if ($value > $param_extremes[$depth][$param_type]['max']) {
+                            $param_extremes[$depth][$param_type]['max'] = $value;
+                        }
                     }
                 }
             }
         }
-    }
-    
-    foreach ($soil_chart_data as &$data) {
-        if (!empty($data)) {
-            usort($data, function($a, $b) {
-                return strtotime($a['x']) - strtotime($b['x']);
-            });
+
+        $precipitation_data_index = [];
+        foreach ($soil_data as $record) {
+            if (isset($record['humidity_accumulative']) && is_numeric($record['humidity_accumulative'])) {
+                $datetime = $record['Date'] . ' ' . $record['Time'];
+                $precipitation_data_index[$datetime] = (float)$record['humidity_accumulative'];
+            }
         }
+
+        foreach ($soil_param_names as $param => $name) {
+            $is_humidity = strpos($param, 'humidity') !== false;
+            $param_type = $is_humidity ? 'humidity' : 'temp';
+            $depth = str_replace(['humidity_', 'temp_', 'cm'], '', $param) . 'cm';
+            
+            if (!isset($depth_params[$depth])) {
+                continue;
+            }
+            
+            $depth_setting = $depth_params[$depth];
+            
+            foreach ($soil_data as $record) {                
+                
+                $datetime = $record['Date'] . ' ' . $record['Time'];
+                $is_interpolated = isset($record['_interpolated']) && $record['_interpolated'];
+                
+                if ($param === 'humidity_accumulative') {
+                    $original_value = isset($record[$param]) && is_numeric($record[$param]) ? (float)$record[$param] : 0;
+                    
+                    $soil_chart_data[$param][] = [
+                        'x' => $datetime,
+                        'y' => $original_value,
+                        'original' => $original_value,
+                        'depth' => 'precipitation',
+                        'type' => 'precipitation',
+                        'color_index' => 0,
+                        'has_data' => !$is_interpolated,
+                        'interpolated' => $is_interpolated
+                    ];
+                } else {
+                    if (isset($record[$param]) && is_numeric($record[$param])) {
+                        $original_value = (float)$record[$param];
+                        
+                        if (isset($param_extremes[$depth][$param_type])) {
+                            $extremes = $param_extremes[$depth][$param_type];
+                            
+                            $range = max(5, $extremes['max'] - $extremes['min']);
+                            $normalized_value = (($original_value - $extremes['min']) / $range) * 15;
+                            
+                            $param_offset = $is_humidity ? 0 : 3;
+                            $normalized_value += $depth_setting['offset'] + $param_offset;
+                            
+                            $soil_chart_data[$param][] = [
+                                'x' => $datetime,
+                                'y' => $normalized_value,
+                                'original' => $original_value,
+                                'depth' => str_replace('cm', '', $depth),
+                                'type' => $param_type,
+                                'color_index' => $depth_setting['color_offset'] + ($is_humidity ? 0 : 1),
+                                'has_data' => !$is_interpolated,
+                                'interpolated' => $is_interpolated
+                            ];
+                        }
+                    }
+                }
+            }
+        }
+        
+        foreach ($soil_chart_data as &$data) {
+            if (!empty($data)) {
+                usort($data, function($a, $b) {
+                    return strtotime($a['x']) - strtotime($b['x']);
+                });
+            }
+        }
+        unset($data);
+        
+        echo "<script>window.precipitationDataIndex = " . json_encode($precipitation_data_index) . ";</script>";
+        echo "<script>window.deviceHumidityCount = " . json_encode($humidity_count) . ";</script>";
     }
-    unset($data);
-    
-    echo "<script>window.precipitationDataIndex = " . json_encode($precipitation_data_index) . ";</script>";
-    echo "<script>window.deviceHumidityCount = " . json_encode($humidity_count) . ";</script>";
-}
 
-$parameter_names = [
-    '2t' => 'Температура воздуха (°C)',
-    '2r' => 'Относительная влажность (%)',
-    'tp' => 'Количество осадков (мм)',
-    'crain' => 'Дождь',
-    'dd_10m' => 'Направление ветра',
-    'dswrf' => 'Солнечное излучение (Вт/м²)',
-    'sp_10m' => 'Скорость ветра (м/с)',
-    'tcc' => 'Облачность (%)',
-    'vis' => 'Видимость (м)',
-];
-
-function degreesToCompass($degrees) {
-    $directions = ['С','ССВ','СВ','ВСВ','В','ВЮВ','ЮВ','ЮЮВ','Ю','ЮЮЗ','ЮЗ','ЗЮЗ','З','ЗСЗ','СЗ','ССЗ'];
-    $index = round(($degrees % 360) / 22.5);
-    return $directions[($index % 16)];
-}
-
-function generateColor($param) {
-    $colors = [
-        '2t' => 'rgba(255, 99, 132, 1)',
-        '2r' => 'rgba(54, 162, 235, 1)',
-        'tp' => 'rgb(51, 96, 173)',
-        'crain' => 'rgba(173, 216, 230, 0.35)',
-        'dd_10m' => 'rgba(255, 159, 64, 1)',
-        'dswrf' => 'rgba(255, 206, 86, 1)',
-        'sp_10m' => 'rgba(75, 192, 192, 1)',
-        'tcc' => 'rgba(166, 166, 166, 0.15)',
-        'vis' => 'rgba(153, 102, 255, 1)'
+    $parameter_names = [
+        '2t' => 'Температура воздуха (°C)',
+        '2r' => 'Относительная влажность (%)',
+        'tp' => 'Количество осадков (мм)',
+        'crain' => 'Дождь',
+        'dd_10m' => 'Направление ветра',
+        'dswrf' => 'Солнечное излучение (Вт/м²)',
+        'sp_10m' => 'Скорость ветра (м/с)',
+        'tcc' => 'Облачность (%)',
+        'vis' => 'Видимость (м)',
     ];
-    return $colors[$param] ?? 'rgba('.rand(0,255).','.rand(0,255).','.rand(0,255).',1)';
-}
 
-$chart_data = [];
-$timestamps = [];
-$param_max_values = [];
-$param_coefficients = [];
-$min_date = '';
-$max_date = '';
-
-if (!empty($forecast_values)) {
-    $param_values = [];
-    foreach ($forecast_values as $fv) {
-        $param = $fv['parameter'];
-        $value = $fv['value'];
-        
-        if ($param === 'dswrf') {
-            $value = $value / 3600;
-        }
-        
-        if (!isset($param_values[$param])) {
-            $param_values[$param] = [];
-        }
-        $param_values[$param][] = $value;
+    function degreesToCompass($degrees) {
+        $directions = ['С','ССВ','СВ','ВСВ','В','ВЮВ','ЮВ','ЮЮВ','Ю','ЮЮЗ','ЮЗ','ЗЮЗ','З','ЗСЗ','СЗ','ССЗ'];
+        $index = round(($degrees % 360) / 22.5);
+        return $directions[($index % 16)];
     }
 
+    function generateColor($param) {
+        $colors = [
+            '2t' => 'rgba(255, 99, 132, 1)',
+            '2r' => 'rgba(54, 162, 235, 1)',
+            'tp' => 'rgb(51, 96, 173)',
+            'crain' => 'rgba(173, 216, 230, 0.35)',
+            'dd_10m' => 'rgba(255, 159, 64, 1)',
+            'dswrf' => 'rgba(255, 206, 86, 1)',
+            'sp_10m' => 'rgba(75, 192, 192, 1)',
+            'tcc' => 'rgba(166, 166, 166, 0.15)',
+            'vis' => 'rgba(153, 102, 255, 1)'
+        ];
+        return $colors[$param] ?? 'rgba('.rand(0,255).','.rand(0,255).','.rand(0,255).',1)';
+    }
 
-    if (isset($param_values['tp'])) {
-        $tp_values = $param_values['tp'];
-        $max_tp_diff = 0;
-        $prev_tp = null;
-        
-        foreach ($tp_values as $tp) {
-            if ($prev_tp !== null) {
-                $diff = $tp - $prev_tp;
-                if ($diff > $max_tp_diff) {
-                    $max_tp_diff = $diff;
-                }
+    $chart_data = [];
+    $timestamps = [];
+    $param_max_values = [];
+    $param_coefficients = [];
+    $min_date = '';
+    $max_date = '';
+
+    if (!empty($forecast_values)) {
+        $param_values = [];
+        foreach ($forecast_values as $fv) {
+            $param = $fv['parameter'];
+            $value = $fv['value'];
+            
+            if ($param === 'dswrf') {
+                $value = $value / 3600;
             }
-            $prev_tp = $tp;
+            
+            if (!isset($param_values[$param])) {
+                $param_values[$param] = [];
+            }
+            $param_values[$param][] = $value;
+        }
+
+
+        if (isset($param_values['tp'])) {
+            $tp_values = $param_values['tp'];
+            $max_tp_diff = 0;
+            $prev_tp = null;
+            
+            foreach ($tp_values as $tp) {
+                if ($prev_tp !== null) {
+                    $diff = $tp - $prev_tp;
+                    if ($diff > $max_tp_diff) {
+                        $max_tp_diff = $diff;
+                    }
+                }
+                $prev_tp = $tp;
+            }
+            
+            $param_max_values['tp'] = $max_tp_diff > 0 ? $max_tp_diff : 1;
+        }
+
+        foreach ($param_values as $param => $values) {
+            if ($param === 'tp') continue; 
+            
+            $max_value = max($values);
+            $param_max_values[$param] = $max_value > 0 ? $max_value : 1;
+        }
+        foreach ($param_max_values as $param => $max_value) {
+            $param_coefficients[$param] = 99.9 / $max_value;
+        }
+
+        foreach ($forecast_values as $fv) {
+            $timestamp = strtotime($fv['ref_time']);
+            $timestamps[] = $timestamp;
         }
         
-        $param_max_values['tp'] = $max_tp_diff > 0 ? $max_tp_diff : 1;
-    }
-
-    foreach ($param_values as $param => $values) {
-        if ($param === 'tp') continue; 
-        
-        $max_value = max($values);
-        $param_max_values[$param] = $max_value > 0 ? $max_value : 1;
-    }
-    foreach ($param_max_values as $param => $max_value) {
-        $param_coefficients[$param] = 99.9 / $max_value;
-    }
-
-    foreach ($forecast_values as $fv) {
-        $timestamp = strtotime($fv['ref_time']);
-        $timestamps[] = $timestamp;
-    }
-    
-    if (!empty($timestamps)) {
-        $min_timestamp = min($timestamps);
-        $max_timestamp = max($timestamps);
-        $min_date = date('Y-m-d\TH:i:s', $min_timestamp);
-        $max_date = date('Y-m-d\TH:i:s', $max_timestamp);
-    }
-
-    $main_parameters = ['2t', '2r', 'tp'];
-
-    foreach ($forecast_values as $fv) {
-        $timestamp = strtotime($fv['ref_time']);
-        $time_label = date('Y-m-d H:i', $timestamp);
-        if (!in_array($time_label, $timestamps)) {
-            $timestamps[] = $time_label;
+        if (!empty($timestamps)) {
+            $min_timestamp = min($timestamps);
+            $max_timestamp = max($timestamps);
+            $min_date = date('Y-m-d\TH:i:s', $min_timestamp);
+            $max_date = date('Y-m-d\TH:i:s', $max_timestamp);
         }
-    }
 
-    $crain_fv = array_filter($forecast_values, fn($fv) => $fv['parameter'] === 'crain');
-    usort($crain_fv, function($a, $b) {
-        return strtotime($a['ref_time']) <=> strtotime($b['ref_time']);
-    });
-    $intervals = [];
-    $interval_start = null;
-    $interval = [];
+        $main_parameters = ['2t', '2r', 'tp'];
 
-    foreach ($crain_fv as $fv) {
-        $val = $fv['value'];
-        $label = date('Y-m-d H:i', strtotime($fv['ref_time']));
-        if ($val == 1) {
-            if ($interval_start === null) {
-                $interval_start = $label;
-                $interval = [$label];
+        foreach ($forecast_values as $fv) {
+            $timestamp = strtotime($fv['ref_time']);
+            $time_label = date('Y-m-d H:i', $timestamp);
+            if (!in_array($time_label, $timestamps)) {
+                $timestamps[] = $time_label;
+            }
+        }
+
+        $crain_fv = array_filter($forecast_values, fn($fv) => $fv['parameter'] === 'crain');
+        usort($crain_fv, function($a, $b) {
+            return strtotime($a['ref_time']) <=> strtotime($b['ref_time']);
+        });
+        $intervals = [];
+        $interval_start = null;
+        $interval = [];
+
+        foreach ($crain_fv as $fv) {
+            $val = $fv['value'];
+            $label = date('Y-m-d H:i', strtotime($fv['ref_time']));
+            if ($val == 1) {
+                if ($interval_start === null) {
+                    $interval_start = $label;
+                    $interval = [$label];
+                } else {
+                    $interval[] = $label;
+                }
             } else {
-                $interval[] = $label;
-            }
-        } else {
-            if (!empty($interval)) {
-                $intervals[] = $interval;
-                $interval = [];
-                $interval_start = null;
-            }
-        }
-    }
-    if (!empty($interval)) {
-        $intervals[] = $interval;
-    }
-
-    $crain_bar_data = [];
-    foreach ($intervals as $interval_group) {
-        foreach ($interval_group as $xl) {
-            $crain_bar_data[] = [
-                'x' => $xl,
-                'y' => 99.9,
-                'original' => 1
-            ];
-        }
-    }
-
-    foreach ($parameter_names as $param => $name) {
-        if ($param === 'tp') {
-            $chart_type = 'bar';
-            $data = [];
-            $prev_value = null;
-            
-            $sorted_vals = array_filter($forecast_values, fn($fv) => $fv['parameter'] === 'tp');
-            usort($sorted_vals, function($a, $b) {
-                return strtotime($a['ref_time']) <=> strtotime($b['ref_time']);
-            });
-            
-            foreach ($sorted_vals as $fv) {
-                $value = $fv['value'];
-                $timestamp = strtotime($fv['ref_time']);
-                $time_label = date('Y-m-d H:i', $timestamp);
-                
-                $precip_value = 0;
-                if ($prev_value !== null) {
-                    $diff = $value - $prev_value;
-                    $precip_value = $diff > 0 ? $diff : 0;
+                if (!empty($interval)) {
+                    $intervals[] = $interval;
+                    $interval = [];
+                    $interval_start = null;
                 }
-                
-                $normalized_value = $precip_value * ($param_coefficients[$param] ?? 1);
-
-                $data[] = [
-                    'x' => $time_label,
-                    'y' => $normalized_value,
-                    'original' => $precip_value
-                ];
-                
-                $prev_value = $value;
             }
-            
-            $chart_data[$param] = [
-                'label' => $parameter_names[$param] ?? $param,
-                'data' => $data,
-                'borderColor' => generateColor($param),
-                'backgroundColor' => generateColor($param),
-                'hidden' => !in_array($param, $main_parameters),
-                'yAxisID' => 'y',
-                'tension' => 0.4,
-                'coefficient' => 1,
-                'type' => $chart_type,
-                'borderWidth' => 0,
-                'barPercentage' => 1.0,
-                'categoryPercentage' => 1.0,
-                'order' => 2,
-                'skipNull' => true,
-                'precipitation' => true
-            ];
-            continue;
         }
-        if ($param == 'crain') {
-            $chart_type = 'bar';
-            $data = $crain_bar_data;
-            $chart_data[$param] = [
-                'label' => $parameter_names[$param] ?? $param,
-                'data' => $data,
-                'borderColor' => generateColor($param),
-                'backgroundColor' => generateColor($param),
-                'hidden' => !in_array($param, $main_parameters),
-                'yAxisID' => 'y',
-                'tension' => 0.4,
-                'coefficient' => 1,
-                'max_value' => 1,
-                'type' => $chart_type,
-                'borderWidth' => 0,
-                'borderRadius' => 0,
-                'barPercentage' => 1.0,
-                'categoryPercentage' => 1.0,
-            ];
-        } else {
-            $vals = array_filter($forecast_values, fn($fv) => $fv['parameter'] === $param);
-            if (empty($vals)) continue;
-            
-            $chart_type = 'line';
-            $data = [];
-            foreach ($vals as $fv) {
-                $value = $fv['value'];
-                if ($param === 'dswrf') {
-                    $value = $value / 3600;
-                }
-                
-                $timestamp = strtotime($fv['ref_time']);
-                $time_label = date('Y-m-d H:i', $timestamp);
-                $normalized_value = $value * $param_coefficients[$param];
-                $data[] = [
-                    'x' => $time_label,
-                    'y' => $normalized_value,
-                    'original' => $value
+        if (!empty($interval)) {
+            $intervals[] = $interval;
+        }
+
+        $crain_bar_data = [];
+        foreach ($intervals as $interval_group) {
+            foreach ($interval_group as $xl) {
+                $crain_bar_data[] = [
+                    'x' => $xl,
+                    'y' => 99.9,
+                    'original' => 1
                 ];
             }
-            
-            $fill = false;
-            $backgroundColor = generateColor($param);
-            if ($param === 'tcc') {
-                $fill = true;
-                $bgColor = generateColor($param);
-                $backgroundColor = $bgColor;
-            }
-            
-            $chart_data[$param] = [
-                'label' => $parameter_names[$param] ?? $param,
-                'data' => $data,
-                'borderColor' => generateColor($param),
-                'backgroundColor' => $backgroundColor,
-                'hidden' => !in_array($param, $main_parameters),
-                'yAxisID' => 'y',
-                'tension' => 0.4,
-                'coefficient' => $param_coefficients[$param],
-                'max_value' => $param_max_values[$param] ?? 1,
-                'type' => $chart_type,
-                'fill' => $fill
-            ];
         }
+
+        foreach ($parameter_names as $param => $name) {
+            if ($param === 'tp') {
+                $chart_type = 'bar';
+                $data = [];
+                $prev_value = null;
+                
+                $sorted_vals = array_filter($forecast_values, fn($fv) => $fv['parameter'] === 'tp');
+                usort($sorted_vals, function($a, $b) {
+                    return strtotime($a['ref_time']) <=> strtotime($b['ref_time']);
+                });
+                
+                foreach ($sorted_vals as $fv) {
+                    $value = $fv['value'];
+                    $timestamp = strtotime($fv['ref_time']);
+                    $time_label = date('Y-m-d H:i', $timestamp);
+                    
+                    $precip_value = 0;
+                    if ($prev_value !== null) {
+                        $diff = $value - $prev_value;
+                        $precip_value = $diff > 0 ? $diff : 0;
+                    }
+                    
+                    $normalized_value = $precip_value * ($param_coefficients[$param] ?? 1);
+
+                    $data[] = [
+                        'x' => $time_label,
+                        'y' => $normalized_value,
+                        'original' => $precip_value
+                    ];
+                    
+                    $prev_value = $value;
+                }
+                
+                $chart_data[$param] = [
+                    'label' => $parameter_names[$param] ?? $param,
+                    'data' => $data,
+                    'borderColor' => generateColor($param),
+                    'backgroundColor' => generateColor($param),
+                    'hidden' => !in_array($param, $main_parameters),
+                    'yAxisID' => 'y',
+                    'tension' => 0.4,
+                    'coefficient' => 1,
+                    'type' => $chart_type,
+                    'borderWidth' => 0,
+                    'barPercentage' => 1.0,
+                    'categoryPercentage' => 1.0,
+                    'order' => 2,
+                    'skipNull' => true,
+                    'precipitation' => true
+                ];
+                continue;
+            }
+            if ($param == 'crain') {
+                $chart_type = 'bar';
+                $data = $crain_bar_data;
+                $chart_data[$param] = [
+                    'label' => $parameter_names[$param] ?? $param,
+                    'data' => $data,
+                    'borderColor' => generateColor($param),
+                    'backgroundColor' => generateColor($param),
+                    'hidden' => !in_array($param, $main_parameters),
+                    'yAxisID' => 'y',
+                    'tension' => 0.4,
+                    'coefficient' => 1,
+                    'max_value' => 1,
+                    'type' => $chart_type,
+                    'borderWidth' => 0,
+                    'borderRadius' => 0,
+                    'barPercentage' => 1.0,
+                    'categoryPercentage' => 1.0,
+                ];
+            } else {
+                $vals = array_filter($forecast_values, fn($fv) => $fv['parameter'] === $param);
+                if (empty($vals)) continue;
+                
+                $chart_type = 'line';
+                $data = [];
+                foreach ($vals as $fv) {
+                    $value = $fv['value'];
+                    if ($param === 'dswrf') {
+                        $value = $value / 3600;
+                    }
+                    
+                    $timestamp = strtotime($fv['ref_time']);
+                    $time_label = date('Y-m-d H:i', $timestamp);
+                    $normalized_value = $value * $param_coefficients[$param];
+                    $data[] = [
+                        'x' => $time_label,
+                        'y' => $normalized_value,
+                        'original' => $value
+                    ];
+                }
+                
+                $fill = false;
+                $backgroundColor = generateColor($param);
+                if ($param === 'tcc') {
+                    $fill = true;
+                    $bgColor = generateColor($param);
+                    $backgroundColor = $bgColor;
+                }
+                
+                $chart_data[$param] = [
+                    'label' => $parameter_names[$param] ?? $param,
+                    'data' => $data,
+                    'borderColor' => generateColor($param),
+                    'backgroundColor' => $backgroundColor,
+                    'hidden' => !in_array($param, $main_parameters),
+                    'yAxisID' => 'y',
+                    'tension' => 0.4,
+                    'coefficient' => $param_coefficients[$param],
+                    'max_value' => $param_max_values[$param] ?? 1,
+                    'type' => $chart_type,
+                    'fill' => $fill
+                ];
+            }
+        }
+
+        sort($timestamps);
     }
 
-    sort($timestamps);
+    function getWind($degrees) {
+        if ($degrees === null || !is_numeric($degrees)) {
+            return '-'; 
+        }
+
+        $degrees = $degrees % 360;
+        if ($degrees < 0) {
+            $degrees += 360;
+        }
+
+        $directions = [
+            'С ' => [337.5, 22.5],
+            'СВ ' => [22.5, 67.5],
+            'В ' => [67.5, 112.5],
+            'ЮВ ' => [112.5, 157.5],
+            'Ю ' => [157.5, 202.5],
+            'ЮЗ ' => [202.5, 247.5],
+            'З ' => [247.5, 292.5],
+            'СЗ ' => [292.5, 337.5]
+        ];
+
+        foreach ($directions as $abbr => $range) {
+            if ($degrees >= $range[0] && $degrees < $range[1]) {
+                return $abbr;
+            }
+        }
+
+        return 'С'; // На случай, если градусы = 360 (но %360 обработает это)
+    }
+
+    function formatDateFromRusDate($day, $short = false){
+        $date = new DateTime($day);
+        $today = new DateTime();
+        $tomorrow = new DateTime('+1 day');
+
+        $months = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+        
+        if($short){
+            $days = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+        }else{
+            $days = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье'];
+        }
+
+        // Проверяем, является ли дата сегодняшним днем
+        if ($date->format('Y-m-d') === $today->format('Y-m-d')) {
+            $dayName = 'Сегодня';
+        } 
+        // Проверяем, является ли дата завтрашним днем
+        elseif ($date->format('Y-m-d') === $tomorrow->format('Y-m-d')) {
+            $dayName = 'Завтра';
+        } 
+        // Для остальных дней используем обычное название дня недели
+        else {
+            $dayOfWeekIndex = (int)$date->format('N') - 1;
+            $dayName = $days[$dayOfWeekIndex];
+        }
+
+        $dayNumber = $date->format('d');
+        $monthName = $months[(int)$date->format('m') - 1];
+
+        $formattedDate = $dayName . ', ' . $dayNumber . ' ' . $monthName;
+        return $formattedDate;
+    }
+
+    function formatDateFromShortRusDate($day){
+        $date = new DateTime($day);
+        $today = new DateTime();
+        $tomorrow = new DateTime('+1 day');
+        
+        $days = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+        // Проверяем, является ли дата сегодняшним днем
+        if ($date->format('Y-m-d') === $today->format('Y-m-d')) {
+            $dayName = 'Сегодня';
+        } 
+        // Проверяем, является ли дата завтрашним днем
+        elseif ($date->format('Y-m-d') === $tomorrow->format('Y-m-d')) {
+            $dayName = 'Завтра';
+        } 
+        // Для остальных дней используем обычное название дня недели
+        else {
+            $dayOfWeekIndex = (int)$date->format('N') - 1;
+            $dayName = $days[$dayOfWeekIndex];
+        }
+
+        $dayNumber = $date->format('d');
+
+        $formattedDate = [ 'name' => $dayName, 'number' => $dayNumber];
+        return $formattedDate;
+    }
 }
+
+
 
 include ROOT_PATH . '/includes/header.php';
 ?>
@@ -566,234 +707,463 @@ include ROOT_PATH . '/includes/header.php';
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@2.0.1"></script>
+<script src="https://api-maps.yandex.ru/v3/?apikey=de391e7f-f29b-4166-abd5-63717adafe6e&lang=ru_RU" type="text/javascript"></script>
+<script>
+    const startDate = new Date(<?=$yStart?>, <?=$mStart - 1?>, <?=$dStart?>);   //месяцы с 0 начинаются
+    const endDate = new Date(<?=$yFinish?>, <?=$mFinish - 1?>, <?=$dFinish?>);  
+    const defaultDate = new Date(<?=$yCurrent?>, <?=$mCurrent - 1?>, <?=$dCurrent?>);  
+        new Pikaday({
+            field: document.getElementById('datepicker'),
+            minDate: startDate,
+            maxDate: endDate,
+            format: 'DD.MM.YYYY', 
+            defaultDate: defaultDate,
+            setDefaultDate: true,
+            firstDay: 1,
+            yearRange: [2020, 2030],
+            onSelect: function(selectedDate) {
+                if (selectedDate) {
+                    const formatted = moment(selectedDate).format('YYYY-MM-DD');
+                    const url = new URL(window.location);
+                    url.searchParams.set('date', formatted);
+                    window.location.href = url.href;
+                } 
+            },
+            i18n: {
+            months: ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
+                    'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'],
+            weekdays: ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'],
+            weekdaysShort: ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб']
+            }
+        });
+</script>
 
 <div class="columns">
     <div class="column col-3 hide-xs">
         <?php include ROOT_PATH . '/includes/sidebar.php'; ?>
     </div>
     <div class="column col-9 col-xs-12">
-        <h3 style="margin-bottom: 0;">Данные устройства <?= htmlspecialchars($device_info['name']) ?></h3>
-        <button class="btn btn-link" onclick="window.history.back()">
+        <h3 style="margin-bottom: 0;">Данные устройства <?= $device_info ? htmlspecialchars($device_info['name']) : '' ?></h3>
+        <button class="btn btn-link" onclick="window.location.href = '/pages/dashboard.php?date=<?=$current_date;?>'">
             <i class="fas fa-arrow-left"></i> Назад к приборам
         </button>
-
-        <div class="tab-container">
-            <div class="tab-controls">
-                <?php if ($show_soil_tab): ?>
-                <button
-                    class="tab-btn <?= $show_soil_tab && !$show_forecast_tab ? 'active' : ($show_soil_tab ? 'active' : '') ?>"
-                    data-tab="soil">Данные почвы</button>
-                <?php endif; ?>
-                <?php if ($show_soil_tab): ?>
-                <button class="tab-btn" data-tab="moisture">Влагозапас</button>
-                <?php endif; ?>
-                <?php if ($show_forecast_tab): ?>
-                <button class="tab-btn <?= $show_forecast_tab && !$show_soil_tab ? 'active' : '' ?>"
-                    data-tab="forecast">Прогноз</button>
-                <?php endif; ?>
-            </div>
-
-            <?php if ($show_soil_tab): ?>
-            <div class="tab-content <?= $show_soil_tab && !$show_forecast_tab ? 'active' : ($show_soil_tab ? 'active' : '') ?>"
-                id="soil-tab">
-                <?php if (empty($soil_data)): ?>
-                <div class="alert alert-info">
-                    Данные о температуре и влажности почвы отсутствуют для этого устройства.
-                </div>
-                <?php else: ?>
-
-                <div class="depth-controls mb-4">
-                    <div class="depth-buttons">
-                        <button class="depth-btn active" data-depth="5">5 см</button>
-                        <button class="depth-btn active" data-depth="15">15 см</button>
-                        <button class="depth-btn active" data-depth="25">25 см</button>
-                        <button class="depth-btn active" data-depth="35">35 см</button>
-                        <button class="depth-btn active" data-depth="45">45 см</button>
-                        <button class="depth-btn active" data-depth="55">55 см</button>
-                        <label class="form-switch">
-                            <input type="checkbox" id="soilParamTypeToggle">
-                            <i class="form-icon"></i> Показать температуру
-                        </label>
-                        <label class="form-switch">
-                            <input type="checkbox" id="soilChartToggle"
-                                <?= $show_soil_tab && !empty($soil_data) ? '' : 'checked' ?>>
-                            <i class="form-icon"></i> Показать общий просмотр
-                        </label>
-                    </div>
-                </div>
-
-                <div class="card mb-4 overview-card" style="display: none;">
-                    <div class="card-header">
-                        <h4>Общий просмотр (30 дней)</h4>
-                    </div>
-                    <div class="card-body">
-                        <canvas id="soilOverviewChart" height="496"></canvas>
-                    </div>
-                </div>
-
-                <div class="card detailed-card">
-                    <div class="card-header">
-                        <h4>Детальный просмотр (7 дней)</h4>
-                    </div>
-                    <div class="card-body" style="overflow-x: auto;">
-                        <div style="min-width: 4000px;">
-                            <canvas id="soilDetailedChart" height="496"
-                                style="width: 100%; max-height: 496px; min-width: 4000px;"></canvas>
-                        </div>
-                    </div>
-                </div>
-                <?php endif; ?>
-            </div>
-            <?php endif; ?>
-
-            <?php if ($show_soil_tab): ?>
-            <div class="tab-content" id="moisture-tab">
-                <?php if (empty($soil_data)): ?>
-                <div class="alert alert-info">
-                    Данные о влагозапасе отсутствуют для этого устройства.
-                </div>
-                <?php else: ?>
-                <div class="depth-controls mb-4">
-                    <label class="form-switch">
-                        <input type="checkbox" id="moistureChartToggle">
-                        <i class="form-icon"></i> Показать общий просмотр
-                    </label>
-
-                    <?php if ($_SESSION['role'] == ROLE_ADMIN): ?>
-                    <div class="zone-controls"
-                        style="display: flex; gap: 10px; margin-top: 0; align-items: center; flex-wrap: wrap;">
-                        <div class="zone-slider-group" style="flex: 1; min-width: 150px;">
-                            <input type="range" min="0" max="300" step="1" class="slider blue-slider"
-                                id="blueZoneSlider" value="<?= $blue_zone_start ?>" style="width: 100%;">
-                            <input type="number" id="blueZoneStart" class="form-input"
-                                style="width: 100%; background-color: rgba(54, 162, 235, 0.2); margin-top: 5px;"
-                                title="Нижняя граница синей зоны" value="<?= htmlspecialchars($blue_zone_start) ?>">
-                        </div>
-                        <div class="zone-slider-group" style="flex: 1; min-width: 150px;">
-                            <input type="range" min="0" max="300" step="1" class="slider green-slider"
-                                id="greenZoneSlider" value="<?= $green_zone_start ?>" style="width: 100%;">
-                            <input type="number" id="greenZoneStart" class="form-input"
-                                style="width: 100%; background-color: rgba(75, 192, 192, 0.2); margin-top: 5px;"
-                                title="Нижняя граница зеленой зоны" value="<?= htmlspecialchars($green_zone_start) ?>">
-                        </div>
-
-
-                        <div class="zone-slider-group" style="flex: 1; min-width: 150px;">
-                            <input type="range" min="0" max="300" step="1" class="slider yellow-slider"
-                                id="yellowZoneSlider" value="<?= $yellow_zone_start ?>" style="width: 100%;">
-                            <input type="number" id="yellowZoneStart" class="form-input"
-                                style="width: 100%; background-color: rgba(255, 206, 86, 0.2); margin-top: 5px;"
-                                title="Нижняя граница желтой зоны" value="<?= htmlspecialchars($yellow_zone_start) ?>">
-                        </div>
-                    </div>
-                    <?php else: ?>
-                    <div class="zone-controls"
-                        style="display: none; gap: 10px; margin-top: 0; align-items: center; flex-wrap: wrap;">
-                        <div class="zone-slider-group" style="flex: 1; min-width: 150px;">
-                            <input type="range" min="0" max="300" step="1" class="slider blue-slider"
-                                id="blueZoneSlider" value="<?= $blue_zone_start ?>" style="width: 100%;">
-                            <input type="number" id="blueZoneStart" class="form-input"
-                                style="width: 100%; background-color: rgba(54, 162, 235, 0.2); margin-top: 5px;"
-                                title="Нижняя граница синей зоны" value="<?= htmlspecialchars($blue_zone_start) ?>">
-                        </div>
-                        <div class="zone-slider-group" style="flex: 1; min-width: 150px;">
-                            <input type="range" min="0" max="300" step="1" class="slider green-slider"
-                                id="greenZoneSlider" value="<?= $green_zone_start ?>" style="width: 100%;">
-                            <input type="number" id="greenZoneStart" class="form-input"
-                                style="width: 100%; background-color: rgba(75, 192, 192, 0.2); margin-top: 5px;"
-                                title="Нижняя граница зеленой зоны" value="<?= htmlspecialchars($green_zone_start) ?>">
-                        </div>
-
-
-                        <div class="zone-slider-group" style="flex: 1; min-width: 150px;">
-                            <input type="range" min="0" max="300" step="1" class="slider yellow-slider"
-                                id="yellowZoneSlider" value="<?= $yellow_zone_start ?>" style="width: 100%;">
-                            <input type="number" id="yellowZoneStart" class="form-input"
-                                style="width: 100%; background-color: rgba(255, 206, 86, 0.2); margin-top: 5px;"
-                                title="Нижняя граница желтой зоны" value="<?= htmlspecialchars($yellow_zone_start) ?>">
-                        </div>
-                    </div>   
+        <?php if($device_info):?>
+            <div class="tab-container">
+                <div class="tab-controls">
+                    <?php if ($show_soil_tab): ?>
+                    <button
+                        class="tab-btn <?= $show_soil_tab && !$show_forecast_tab ? 'active' : ($show_soil_tab ? 'active' : '') ?>"
+                        data-tab="soil">Данные почвы</button>
+                    <?php endif; ?>
+                    <?php if ($show_soil_tab): ?>
+                    <button class="tab-btn" data-tab="moisture">Влагозапас</button>
+                    <?php endif; ?>
+                    <?php if ($show_forecast_tab): ?>
+                        <button class="tab-btn " data-tab="forecast-data">Прогноз</button>
+                        <button class="tab-btn <?= (!$show_forecast_data && $show_forecast_tab) ? 'active' : '' ?>" data-tab="forecast">Графики прогноза</button>                   
                     <?php endif; ?>
                 </div>
 
-                <div class="card mb-4 overview-card" style="display: none;">
-                    <div class="card-header">
-                        <h4>Общий просмотр (30 дней)</h4>
+                <?php if ($show_soil_tab): ?>
+                <div class="tab-content <?= $show_soil_tab && !$show_forecast_tab ? 'active' : ($show_soil_tab ? 'active' : '') ?>"
+                    id="soil-tab">
+                    <?php if (empty($soil_data)): ?>
+                    <div class="alert alert-info">
+                        Данные о температуре и влажности почвы отсутствуют для этого устройства.
                     </div>
-                    <div class="card-body">
-                        <canvas id="moistureOverviewChart" height="496"></canvas>
-                    </div>
-                </div>
+                    <?php else: ?>
 
-                <div class="card detailed-card">
-                    <div class="card-header">
-                        <h4>Детальный просмотр (7 дней)</h4>
-                    </div>
-                    <div class="card-body" style="overflow-x: auto;">
-                        <div style="min-width: 4000px;">
-                            <canvas id="moistureDetailedChart" height="496"
-                                style="width: 100%; max-height: 496px; min-width: 4000px;"></canvas>
+                    <div class="depth-controls mb-4">
+                        <div class="depth-buttons">
+                            <button class="depth-btn active" data-depth="5">5 см</button>
+                            <button class="depth-btn active" data-depth="15">15 см</button>
+                            <button class="depth-btn active" data-depth="25">25 см</button>
+                            <button class="depth-btn active" data-depth="35">35 см</button>
+                            <button class="depth-btn active" data-depth="45">45 см</button>
+                            <button class="depth-btn active" data-depth="55">55 см</button>
+                            <label class="form-switch">
+                                <input type="checkbox" id="soilParamTypeToggle">
+                                <i class="form-icon"></i> Показать температуру
+                            </label>
+                            <label class="form-switch">
+                                <input type="checkbox" id="soilChartToggle"
+                                    <?= $show_soil_tab && !empty($soil_data) ? '' : 'checked' ?>>
+                                <i class="form-icon"></i> Показать общий просмотр
+                            </label>
                         </div>
                     </div>
+
+                    <div class="card mb-4 overview-card" style="display: none;">
+                        <div class="card-header">
+                            <h4>Общий просмотр (30 дней)</h4>
+                        </div>
+                        <div class="card-body">
+                            <canvas id="soilOverviewChart" height="496"></canvas>
+                        </div>
+                    </div>
+
+                    <div class="card detailed-card">
+                        <div class="card-header">
+                            <h4>Детальный просмотр (7 дней)</h4>
+                        </div>
+                        <div class="card-body" style="overflow-x: auto;">
+                            <div style="min-width: 4000px;">
+                                <canvas id="soilDetailedChart" height="496"
+                                    style="width: 100%; max-height: 496px; min-width: 4000px;"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                    <?php endif; ?>
                 </div>
                 <?php endif; ?>
-            </div>
-            <?php endif; ?>
 
-            <?php if ($show_forecast_tab): ?>
-            <div class="tab-content <?= $show_forecast_tab && !$show_soil_tab ? 'active' : '' ?>" id="forecast-tab">
-                <?php if (empty($forecast_values)): ?>
-                <div class="alert alert-info">
-                    Данные прогноза отсутствуют для этого устройства.
-                </div>
-                <?php else: ?>
-                <div class="chart-controls mb-4">
-                    <div class="parameter-toggles">
-                        <?php foreach ($parameter_names as $param => $name): ?>
-                        <?php if (isset($chart_data[$param])): ?>
-                        <label class="parameter-toggle <?= !$chart_data[$param]['hidden'] ? 'active' : '' ?>"
-                            data-param="<?= $param ?>">
-                            <input type="checkbox" <?= !$chart_data[$param]['hidden'] ? 'checked' : '' ?>>
-                            <span class="toggle-indicator"
-                                style="background: <?= $chart_data[$param]['borderColor'] ?>"></span>
-                            <span class="toggle-label"><?= htmlspecialchars($name) ?></span>
+                <?php if ($show_soil_tab): ?>
+                <div class="tab-content" id="moisture-tab">
+                    <?php if (empty($soil_data)): ?>
+                    <div class="alert alert-info">
+                        Данные о влагозапасе отсутствуют для этого устройства.
+                    </div>
+                    <?php else: ?>
+                    <div class="depth-controls mb-4">
+                        <label class="form-switch">
+                            <input type="checkbox" id="moistureChartToggle">
+                            <i class="form-icon"></i> Показать общий просмотр
                         </label>
-                        <?php endif; ?>
-                        <?php endforeach; ?>
-                    </div>
-                </div>
-                <div class="form-group mb-4">
-                    <label class="form-switch">
-                        <input type="checkbox" id="forecastChartToggle">
-                        <i class="form-icon"></i> Показать детальный прогноз
-                    </label>
-                </div>
-                <div class="card mb-4 overview-card">
-                    <div class="card-header">
-                        <h4>Общий просмотр</h4>
-                    </div>
-                    <div class="card-body">
-                        <canvas id="forecastOverviewChart" height="496"></canvas>
-                    </div>
-                </div>
 
-                <div class="card detailed-card" style="display: none;">
-                    <div class="card-header">
-                        <h4>Детальный просмотр</h4>
+                        <?php if ($_SESSION['role'] == ROLE_ADMIN): ?>
+                        <div class="zone-controls"
+                            style="display: flex; gap: 10px; margin-top: 0; align-items: center; flex-wrap: wrap;">
+                            <div class="zone-slider-group" style="flex: 1; min-width: 150px;">
+                                <input type="range" min="0" max="300" step="1" class="slider blue-slider"
+                                    id="blueZoneSlider" value="<?= $blue_zone_start ?>" style="width: 100%;">
+                                <input type="number" id="blueZoneStart" class="form-input"
+                                    style="width: 100%; background-color: rgba(54, 162, 235, 0.2); margin-top: 5px;"
+                                    title="Нижняя граница синей зоны" value="<?= htmlspecialchars($blue_zone_start) ?>">
+                            </div>
+                            <div class="zone-slider-group" style="flex: 1; min-width: 150px;">
+                                <input type="range" min="0" max="300" step="1" class="slider green-slider"
+                                    id="greenZoneSlider" value="<?= $green_zone_start ?>" style="width: 100%;">
+                                <input type="number" id="greenZoneStart" class="form-input"
+                                    style="width: 100%; background-color: rgba(75, 192, 192, 0.2); margin-top: 5px;"
+                                    title="Нижняя граница зеленой зоны" value="<?= htmlspecialchars($green_zone_start) ?>">
+                            </div>
+
+
+                            <div class="zone-slider-group" style="flex: 1; min-width: 150px;">
+                                <input type="range" min="0" max="300" step="1" class="slider yellow-slider"
+                                    id="yellowZoneSlider" value="<?= $yellow_zone_start ?>" style="width: 100%;">
+                                <input type="number" id="yellowZoneStart" class="form-input"
+                                    style="width: 100%; background-color: rgba(255, 206, 86, 0.2); margin-top: 5px;"
+                                    title="Нижняя граница желтой зоны" value="<?= htmlspecialchars($yellow_zone_start) ?>">
+                            </div>
+                        </div>
+                        <?php else: ?>
+                        <div class="zone-controls"
+                            style="display: none; gap: 10px; margin-top: 0; align-items: center; flex-wrap: wrap;">
+                            <div class="zone-slider-group" style="flex: 1; min-width: 150px;">
+                                <input type="range" min="0" max="300" step="1" class="slider blue-slider"
+                                    id="blueZoneSlider" value="<?= $blue_zone_start ?>" style="width: 100%;">
+                                <input type="number" id="blueZoneStart" class="form-input"
+                                    style="width: 100%; background-color: rgba(54, 162, 235, 0.2); margin-top: 5px;"
+                                    title="Нижняя граница синей зоны" value="<?= htmlspecialchars($blue_zone_start) ?>">
+                            </div>
+                            <div class="zone-slider-group" style="flex: 1; min-width: 150px;">
+                                <input type="range" min="0" max="300" step="1" class="slider green-slider"
+                                    id="greenZoneSlider" value="<?= $green_zone_start ?>" style="width: 100%;">
+                                <input type="number" id="greenZoneStart" class="form-input"
+                                    style="width: 100%; background-color: rgba(75, 192, 192, 0.2); margin-top: 5px;"
+                                    title="Нижняя граница зеленой зоны" value="<?= htmlspecialchars($green_zone_start) ?>">
+                            </div>
+
+
+                            <div class="zone-slider-group" style="flex: 1; min-width: 150px;">
+                                <input type="range" min="0" max="300" step="1" class="slider yellow-slider"
+                                    id="yellowZoneSlider" value="<?= $yellow_zone_start ?>" style="width: 100%;">
+                                <input type="number" id="yellowZoneStart" class="form-input"
+                                    style="width: 100%; background-color: rgba(255, 206, 86, 0.2); margin-top: 5px;"
+                                    title="Нижняя граница желтой зоны" value="<?= htmlspecialchars($yellow_zone_start) ?>">
+                            </div>
+                        </div>   
+                        <?php endif; ?>
                     </div>
-                    <div class="card-body" style="overflow-x: auto;">
-                        <div style="min-width: 4000px;">
-                            <canvas id="forecastDetailedChart" height="496"
-                                style="width: 100%; max-height: 496px; min-width: 4000px;"></canvas>
+
+                    <div class="card mb-4 overview-card" style="display: none;">
+                        <div class="card-header">
+                            <h4>Общий просмотр (30 дней)</h4>
+                        </div>
+                        <div class="card-body">
+                            <canvas id="moistureOverviewChart" height="496"></canvas>
                         </div>
                     </div>
+
+                    <div class="card detailed-card">
+                        <div class="card-header">
+                            <h4>Детальный просмотр (7 дней)</h4>
+                        </div>
+                        <div class="card-body" style="overflow-x: auto;">
+                            <div style="min-width: 4000px;">
+                                <canvas id="moistureDetailedChart" height="496"
+                                    style="width: 100%; max-height: 496px; min-width: 4000px;"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                    <?php endif; ?>
                 </div>
                 <?php endif; ?>
-            </div>
-            <?php endif; ?>
-        </div>
+                
+                <?php if ($show_forecast_data): ?>
+                    <div class="tab-content" id="forecast-data-tab">
+                    <?php if (empty($forecast_values)): ?>
+                    <div class="alert alert-info">
+                        Данные прогноза на выбранную дату отсутствуют.</br>
+                        Для этого устройства доступны данные прогноза с <strong><?=$device_forecast_period['device_period'];?></strong>! 
+                    </div>
+                    <?php else: ?>               
+                    <!-- Виджеты прогноза-->
+                    <div class="card mb-4 overview-card">
+                        <div class="card-header">
+                            <h4></h4>
+                        </div>
+                        <div class="card-body">
+                            <div id="map" style="height: 200px"></div>
+                            <?php         
+                                          
+                                $last_meteo_data = $device->getLastMeteoData($device_info['id'], $current_date);
+                                $forecastValueNow = $device->getForecastValuesNow($device_info['id'], $current_date);
+                                $forecastValueAllDay = $device->getForecastValuesAllDay($device_info['id'], $current_date);
+                                $forecastValueWeekFromTime = $device->getForecastValuesWeekFromTime($device_info['id'], $current_date);
+                                //echo'<pre>';
+                                print_r($forecastValueWeekFromTime);
+                               // echo '</pre>';
+                                if(!empty($forecastValueNow['parameters'])){
+                                    if(!empty($forecastValueNow['parameters']['2t'])){
+                                        $current_temp = round($forecastValueNow['parameters']['2t']);
+                                    }else{
+                                        $current_temp = '-';
+                                    }
+                                    if($forecastValueNow['parameters']['crain'] > 0){
+                                        $humidity = $device->getRainIcon($forecastValueNow['parameters']['crain']);
+                                    }else{
+                                        $humidity = $device->getCloudIcon($forecastValueNow['parameters']['tcc']);
+                                    } 
+                                }
+                                
+                            ?>
+                            <!-- Прогноз сутки -->
+                            <div class="weather-widget">
+                                <!-- Левый блок - текущая температура -->
+                                <div class="temperature-block">
+                                    <span class="current-temp"><?php echo htmlspecialchars($current_temp);?></span>
+                                    <?php echo $current_temp != '' ? '<span class="current-temp-unit">°C</span>' : '-'; ?> 
+                                </div>
+                                <!-- Средний блок - иконка погоды -->
+                                <div class="weather-icon-block">
+                                    <div class="weather-icon"><?php echo $humidity;?></div>
+                                </div>
+                                <!-- Правый блок - прогноз по часам на сутки -->
+                                <div class="forecast-block">
+                                    <div class="forecast-container">
+                                        <button class="scroll-arrow scroll-arrow-left" id="scrollLeft">◀</button>
+                                        <div class="hourly-forecast-wrapper">
+                                            <div class="hourly-forecast" id="hourlyForecast">
+                                                <?php foreach($forecastValueAllDay as $hour): ?>
+                                                <div class="hour-forecast">
+                                                    <div class="hour-time"><?php echo $hour['ref_time']?></div>
+                                                    <div class="hour-temp-block">
+                                                        <span class="hour-temp"><?php echo round($hour['parameters']['2t'])?></span><span class="hour-temp-unit">°C</span>
+                                                    </div>
+                                                    <div class="hour-icon">
+                                                        <?php
+                                                            $params = $hour['parameters'] ?? [];
+                                                            echo ($params['crain'] ?? 0) > 0 
+                                                                ? $device->getRainIcon($params['crain']) 
+                                                                : $device->getCloudIcon($params['tcc'] ?? null);
+                                                        ?>
+                                                    </div>
+                                                </div>  
+                                                <?php endforeach; ?>                                      
+                                            </div>
+                                        </div>
+                                        <button class="scroll-arrow scroll-arrow-right" id="scrollRight">▶</button>
+                                    </div>
+                                </div>
+                            </div>
+                            <!-- Прогноз 10 дней общий-->
+                            <div class="weather-container">
+                                <div class="forecast-header">
+                                    Прогноз на 10 дней
+                                </div>
+                                
+                                <div class="forecast-content">
+                                    <div class="days-container">
+                                        <?php 
+                                            $forecastTenDayNight = $device->getForecastValuesWeekFromDayNight($device_info['id'], $current_date);
+                                            //print_r($forecastTenDayNight);
+                                            foreach($forecastTenDayNight as $day):
+                                                $paramDay = $day['day']['parameters'];
+                                                $paramNight = $day['night']['parameters'];
+                                                $date = formatDateFromShortRusDate($day['date']);
+                                                $dateId = new DateTime($day['date']);
+                                                $dateId = $dateId->format('m.d');
+                                        ?>                                    
+                                            <div class="day-card" data-target="<?php echo $dateId;?>">
+                                                <div class="day-name"><?php echo $date['name'];?></div>
+                                                <div class="day-date"><?php echo $date['number'];?></div>
+                                                <div class="weather-icon-day">
+                                            <?php
+                                                if($paramDay['crain'] > 0){
+                                                    echo $device->getRainIcon($paramDay['crain']);
+                                                }else{
+                                                    echo $device->getCloudIcon($paramDay['tcc']);                                               
+                                                }   
+                                            ?>                           
+                                                </div>
+                                                <!-- <div class="temperature">22°</div>-->
+                                            </div>
+                                            
+                                        <?php endforeach;?>
+                                    </div>
+                                    <div style="height: 150px;">
+                                    <canvas id="chart-container"></canvas>
+                                    </div>
+                                
+                                </div>
+                            </div>
+                            <!-- Прогноз 10 дней по дню-->
+                            <?php forEach($forecastValueWeekFromTime as $day):
+                            echo '<pre>'; 
+                            print_r($day);
+                            echo '</pre>';
+                            
+                            $date = formatDateFromRusDate($day['date']);
+                            $dateId = new DateTime($day['date']);
+                            $dateId = $dateId->format('m.d');
+                            ?>   
+                                <div class="weather-widget-day" id='<?php echo $dateId; ?>'>
+                                    <!-- Левый блок — СТАТИЧНЫЙ -->
+                                    <div class="weather-block left-block">
+                                        <div class="block-title-left"><?php echo $date; ?></div>
+                                        <div class="weather-rows">
+                                            <?php foreach ($day['items'] as $paramKey => $paramData):
+                                                if ($paramKey !== '2t') continue; // Работаем только с температурой для левого блока
+                                                foreach ($paramData['times'] as $targetTime => $timeData):
+                                                    $crainValue = $day['items']['crain']['times'][$targetTime]['value'] ?? 0;
+                                                    $tccValue = $day['items']['tcc']['times'][$targetTime]['value'] ?? null;
+                                            ?>
+                                                <div class="weather-row">
+                                                    <div class="time-period"><?php echo $targetTime; ?></div>
+                                                    <div class="day-temp-block">
+                                                        <span class="temperature">
+                                                            <?php echo $timeData['value'] !== null ? round($timeData['value']) : '—'; ?>
+                                                        </span>
+                                                        <span class="day-temp-unit">°C</span>
+                                                    </div>
+                                                    <div class="weather-icon-left">
+                                                        <?php
+                                                            echo $crainValue > 0
+                                                                ? $device->getRainIcon($crainValue)
+                                                                : $device->getCloudIcon($tccValue);
+                                                        ?>
+                                                    </div>
+                                                </div>
+                                            <?php endforeach; ?>
+                                            <?php break; // достаточно одного прохода, т.к. только '2t' нужен ?>
+                                            <?php endforeach; ?>
+                                        </div>
+                                    </div>
 
-        <script>
+                                <!-- Правые блоки — УНИВЕРСАЛЬНЫЕ -->
+                                    <?php foreach ($day['items'] as $paramKey => $paramData):
+                                        // Пропускаем параметры, которые уже отображены в левом блоке
+                                        if (in_array($paramKey, ['2t', 'crain', 'tcc'])) continue;
+                                    ?>
+                                    <div class="weather-block">
+                                        <div class="block-title"><?= htmlspecialchars($paramData['name']) ?></div>
+                                        <div class="right-block-content">
+                                            <?php foreach ($paramData['times'] as $timeKey => $timeData): 
+                                               
+                                                ?>
+                                                <div class="data-item">
+                                                    <?php if ($paramData['type'] === 'wind'): ?>
+                                                        <?= htmlspecialchars($timeData['speed']) ?> <?= getWind($timeData['direction']) ?> 
+                                                    <?php else: ?>
+                                                        <?= htmlspecialchars($timeData['display']) ?>
+                                                    <?php endif; ?>
+                                                </div>
+                                            <?php endforeach; ?>
+                                        </div>
+                                    </div>
+                            <?php endforeach; ?>
+                        </div>         
+                <?php endforeach;?>
+                            <!----->
+                        </div>
+                    </div>
+                    <?php endif; ?>
+                </div>
+                <?php endif; ?>
+
+                <?php if ($show_forecast_tab): ?>
+                <div class="tab-content <?= $show_forecast_tab && !$show_soil_tab ? 'active' : '' ?>" id="forecast-tab">
+                    <?php if (empty($forecast_values)): ?>
+                    <div class="alert alert-info">
+                    Данные прогноза на выбранную дату отсутствуют.</br>
+                    Для этого устройства доступны данные прогноза с <strong><?=$device_forecast_period['device_period'];?></strong>! 
+                    </div>
+                    <?php else: ?>
+                    <div class="chart-controls mb-4">
+                        <div class="parameter-toggles">
+                            <?php foreach ($parameter_names as $param => $name): ?>
+                            <?php if (isset($chart_data[$param])): ?>
+                            <label class="parameter-toggle <?= !$chart_data[$param]['hidden'] ? 'active' : '' ?>"
+                                data-param="<?= $param ?>">
+                                <input type="checkbox" <?= !$chart_data[$param]['hidden'] ? 'checked' : '' ?>>
+                                <span class="toggle-indicator"
+                                    style="background: <?= $chart_data[$param]['borderColor'] ?>"></span>
+                                <span class="toggle-label"><?= htmlspecialchars($name) ?></span>
+                            </label>
+                            <?php endif; ?>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                    <div class="form-group mb-4">
+                        <label class="form-switch">
+                            <input type="checkbox" id="forecastChartToggle">
+                            <i class="form-icon"></i> Показать детальный прогноз
+                        </label>
+                    </div>
+                    <div class="card mb-4 overview-card">
+                        <div class="card-header">
+                            <h4>Общий просмотр</h4>
+                        </div>
+                        <div class="card-body">
+                            <canvas id="forecastOverviewChart" height="496"></canvas>
+                        </div>
+                    </div>
+
+                    <div class="card detailed-card" style="display: none;">
+                        <div class="card-header">
+                            <h4>Детальный просмотр</h4>
+                        </div>
+                        <div class="card-body" style="overflow-x: auto;">
+                            <div style="min-width: 4000px;">
+                                <canvas id="forecastDetailedChart" height="496"
+                                    style="width: 100%; max-height: 496px; min-width: 4000px;"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                    <?php endif; ?>
+                </div>
+                <?php endif; ?>
+                <button id="backToTop" title="Наверх"><i class="fas fa-arrow-up"></i></button>
+
+            </div>
+        <?php else: ?>
+            <div class="alert alert-info">
+                        Данное устройство не доступно для данного периода.
+                    </div>
+        <?php endif; ?>        
+    <script>        
         const precipitationShiftPlugin = {
             id: 'precipitationShiftPlugin',
             beforeDatasetDraw(chart, args) {
@@ -863,6 +1233,8 @@ include ROOT_PATH . '/includes/header.php';
 
                 document.getElementById(tabId + '-tab').classList.add('active');
                 this.classList.add('active');
+                // Dispatch a resize event to trigger layout recalculation for components in the new tab
+                window.dispatchEvent(new Event('resize'));
             });
         });
 
@@ -877,7 +1249,7 @@ include ROOT_PATH . '/includes/header.php';
         ];
 
         const normalizedSoilData = {};
-        <?php foreach ($soil_param_names as $param => $name): ?>
+        <?php foreach ($soil_param_names as $param => $name): ?>            
         <?php if (isset($soil_chart_data[$param]) && !empty($soil_chart_data[$param])): ?>
         <?php
                 if ($param === 'humidity_accumulative') {
@@ -1051,7 +1423,7 @@ include ROOT_PATH . '/includes/header.php';
                 const zoneHeight = sortedDepths.length > 0 ? 100 / sortedDepths.length : 100;
 
                 activeParams.forEach(param => {
-                    const paramData = normalizedSoilData[param];
+                    const paramData = normalizedSoilData[param];                    
                     if (!paramData || paramData.isAccumulative) return;
 
                     const depth = paramData.depth.replace('cm', '');
@@ -1133,13 +1505,11 @@ include ROOT_PATH . '/includes/header.php';
             }
 
             function getChartOptions(isDetailed, activeParams) {
-                const now = new Date();
-                const overviewStart = new Date();
-                overviewStart.setDate(now.getDate() - 30);
-
-                const detailedStart = new Date();
-                detailedStart.setDate(now.getDate() - 7);
-
+                const now = new Date('<?=$current_date?>');
+                const overviewEnd = new Date('<?=$current_date?>');
+                overviewEnd.setDate(now.getDate() + 30);
+                const detailedEnd = new Date('<?=$current_date?>');
+                detailedEnd.setDate(now.getDate() + 7);
                 const depthParams = activeParams.filter(p => normalizedSoilData[p] && !normalizedSoilData[p]
                     .isAccumulative);
                 const visibleDepths = [...new Set(depthParams.map(p => {
@@ -1286,8 +1656,8 @@ include ROOT_PATH . '/includes/header.php';
                                 },
                                 unit: isDetailed ? 'hour' : undefined
                             },
-                            min: isDetailed ? detailedStart : overviewStart,
-                            max: now,
+                            min: now,
+                            max: isDetailed ? detailedEnd : overviewEnd,
                             title: {
                                 display: true,
                                 text: 'Время'
@@ -1375,7 +1745,6 @@ include ROOT_PATH . '/includes/header.php';
 
                 overviewChart.data.datasets = datasets;
                 detailedChart.data.datasets = datasets;
-
                 [overviewChart, detailedChart].forEach(chart => {
                     chart.data.datasets.forEach((dataset, datasetIndex) => {
                         if (dataset.precipitation) {
@@ -1464,11 +1833,11 @@ include ROOT_PATH . '/includes/header.php';
             const moistureDetailedCtx = document.getElementById('moistureDetailedChart').getContext('2d');
 
             function getMoistureChartOptions(isDetailed, yellow, green, blue) {
-                const now = new Date();
-                const overviewStart = new Date();
-                overviewStart.setDate(now.getDate() - 30);
-                const detailedStart = new Date();
-                detailedStart.setDate(now.getDate() - 7);
+                const now = new Date('<?=$current_date?>');
+                const overviewEnd = new Date('<?=$current_date?>');
+                overviewEnd.setDate(now.getDate() + 30);
+                const detailedEnd = new Date('<?=$current_date?>');
+                detailedEnd.setDate(now.getDate() + 7);
 
                 const humidityCount = window.deviceHumidityCount || 3;
                 const moistureData = createMoistureDatasets();
@@ -1539,8 +1908,8 @@ include ROOT_PATH . '/includes/header.php';
                             annotations: {
                                 zone1: {
                                     type: 'box',
-                                    xMin: isDetailed ? detailedStart : overviewStart,
-                                    xMax: now,
+                                    xMin: now,
+                                    xMax: isDetailed ? detailedEnd : overviewEnd,
                                     yMin: 0,
                                     yMax: zone1End,
                                     backgroundColor: 'rgba(255, 99, 132, 0.2)',
@@ -1548,8 +1917,8 @@ include ROOT_PATH . '/includes/header.php';
                                 },
                                 zone2: {
                                     type: 'box',
-                                    xMin: isDetailed ? detailedStart : overviewStart,
-                                    xMax: now,
+                                    xMin: now,
+                                    xMax: isDetailed ? detailedEnd : overviewEnd,
                                     yMin: zone1End,
                                     yMax: zone2End,
                                     backgroundColor: 'rgba(255, 206, 86, 0.2)',
@@ -1557,8 +1926,8 @@ include ROOT_PATH . '/includes/header.php';
                                 },
                                 zone3: {
                                     type: 'box',
-                                    xMin: isDetailed ? detailedStart : overviewStart,
-                                    xMax: now,
+                                    xMin: now,
+                                    xMax: isDetailed ? detailedEnd : overviewEnd,
                                     yMin: zone2End,
                                     yMax: zone3End,
                                     backgroundColor: 'rgba(75, 192, 192, 0.2)',
@@ -1566,8 +1935,8 @@ include ROOT_PATH . '/includes/header.php';
                                 },
                                 zone4: {
                                     type: 'box',
-                                    xMin: isDetailed ? detailedStart : overviewStart,
-                                    xMax: now,
+                                    xMin: now,
+                                    xMax: isDetailed ? detailedEnd : overviewEnd,
                                     yMin: zone3End,
                                     yMax: maxYValue,
                                     backgroundColor: 'rgba(54, 162, 235, 0.4)',
@@ -1600,8 +1969,8 @@ include ROOT_PATH . '/includes/header.php';
                                 locale: 'ru',
                                 unit: isDetailed ? 'hour' : undefined
                             },
-                            min: isDetailed ? detailedStart : overviewStart,
-                            max: now,
+                            min: now,
+                            max: isDetailed ? detailedEnd : overviewEnd,
                             offset: false,
                             grid: {
                                 offset: false 
@@ -2433,9 +2802,9 @@ include ROOT_PATH . '/includes/header.php';
         });
 
         <?php endif; ?>
-        </script>
+    </script>
 
-        <style>
+    <style>
         .tab-container {}
 
         .tab-controls {
@@ -2803,6 +3172,721 @@ include ROOT_PATH . '/includes/header.php';
         .slider {
             position: static;
         }
-        </style>
+    </style>
+    <!-- Map -->
+    <script>
+        let mapContainer = document.getElementById('map');
+        if(mapContainer){
+            initMap();
+
+        async function initMap() {
+            if (typeof ymaps3 === 'undefined') {
+                console.warn('Yandex Maps API не загружен');
+                return;
+            }
+
+            await ymaps3.ready;
+
+            const {YMap, YMapDefaultSchemeLayer, YMapMarker, YMapDefaultFeaturesLayer} = ymaps3;
+
+            // Инициализируем карту
+            const map = new YMap(
+                // Передаём ссылку на HTMLElement контейнера
+                document.getElementById('map'),
+
+                // Передаём параметры инициализации карты
+                {
+                    location: {
+                        // Координаты центра карты
+                       // center: [55.835966, 37.555171],
+                        center: [<?=$longitude;?>, <?=$latitude;?>],
+
+                        // Уровень масштабирования
+                        zoom: 15
+                    }
+                }
+            );            
+
+            // Добавляем слой для отображения схематической карты
+            map.addChild(new YMapDefaultSchemeLayer());
+
+            // Добавляем слой для объектов (маркеры, линии и т.д.)
+            map.addChild(new YMapDefaultFeaturesLayer());
+
+            // Создаем элемент маркера
+            const markerElement = document.createElement('div');
+            markerElement.style.width = '30px';
+            markerElement.style.height = '30px';
+            markerElement.style.background = 'red';
+            markerElement.style.borderRadius = '50%';
+            markerElement.style.border = '2px solid white';
+            markerElement.style.boxShadow = '0 0 10px rgba(0,0,0,0.5)';
+
+            // Создаем маркер
+            const marker = new YMapMarker(
+                {
+                    coordinates: [<?=$longitude;?>, <?=$latitude;?>], 
+                },
+                markerElement
+            );
+
+            // Добавляем маркер на карту
+            map.addChild(marker);
+        }
+        }
+        
+    </script>
+    <!-- Виджет прогноза -->
+    <script>
+       window.addEventListener('load', function () {
+            const hourlyForecast = document.getElementById('hourlyForecast');
+            if (!hourlyForecast) return;
+
+            const scrollLeftBtn = document.getElementById('scrollLeft');
+            const scrollRightBtn = document.getElementById('scrollRight');
+
+            function getScrollStep() {
+                const firstItem = hourlyForecast.firstElementChild;
+                if (!firstItem) return 0;
+                const itemWidth = firstItem.offsetWidth;
+                const gap = 10;
+                const visibleItems = Math.floor(hourlyForecast.clientWidth / (itemWidth + gap));
+                return (itemWidth + gap) * (visibleItems > 1 ? visibleItems - 1 : 1);
+            }
+
+            function updateScrollButtons() {
+                const maxScroll = hourlyForecast.scrollWidth - hourlyForecast.clientWidth;
+                const currentScroll = hourlyForecast.scrollLeft;
+
+                scrollLeftBtn.disabled = currentScroll <= 0;
+                scrollRightBtn.disabled = currentScroll >= maxScroll - 5;
+            }
+
+            scrollLeftBtn.addEventListener('click', function () {
+                const step = getScrollStep();
+                hourlyForecast.scrollBy({ left: -step, behavior: 'smooth' });
+            });
+
+            scrollRightBtn.addEventListener('click', function () {
+                const step = getScrollStep();
+                hourlyForecast.scrollBy({ left: step, behavior: 'smooth' });
+            });
+
+            hourlyForecast.addEventListener('scroll', updateScrollButtons);
+            window.addEventListener('resize', updateScrollButtons);
+
+            setTimeout(updateScrollButtons, 250);
+       });
+    </script>
+    <style>
+      .weather-widget {
+            display: flex;
+            align-items: center;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 15px;
+            border-radius: 10px;
+            gap: 15px;
+        }
+
+        .temperature-block {
+            display: flex;
+            align-items: center;
+            padding: 0 0 0 10px;
+            flex-shrink: 0;
+        }
+
+        .current-temp {
+            font-size: 5em;
+            font-weight: bold;
+            margin: 0;
+        }
+
+        .current-temp-unit {
+            margin-bottom: 36px;
+            font-size: 1.5em;
+            font-weight: 700;
+        }
+
+        .weather-icon-block {
+            display: flex;
+            align-items: center;
+            flex-shrink: 0;
+        }
+
+        .weather-icon {
+            font-size: 4em;
+        }
+
+        .forecast-block {
+            flex-grow: 1;
+            min-width: 0;
+            padding: 0;
+        }
+
+        .forecast-container {
+            display: flex;
+            align-items: center;
+            width: 100%;
+        }
+
+        .hourly-forecast-wrapper {
+            flex-grow: 1;
+            overflow: hidden;
+        }
+
+        .hourly-forecast {
+            display: flex;
+            gap: 10px;
+            padding: 5px 0;
+            overflow-x: auto;
+            scroll-behavior: smooth;
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+
+        .hourly-forecast::-webkit-scrollbar {
+            display: none;
+        }
+
+        .hour-forecast {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-width: 60px;
+            padding: 10px 5px;
+            background: rgba(255,255,255,0.15);
+            border-radius: 10px;
+            text-align: center;
+            flex-shrink: 0;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        .hour-time {
+            font-weight: bold;
+            margin-bottom: 5px;
+            font-size: 12px;
+        }
+
+        .hour-icon {
+            font-size: 20px;
+        }
+
+        .hour-temp-block {
+            display: flex;
+            align-items: center;
+        }
+
+        .hour-temp {
+            font-size: 12px;
+        }
+
+        .hour-temp-unit {
+            margin-bottom: 6px;
+            font-size: 7px;
+        }
+
+        .scroll-arrow {
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            padding: 0 10px;
+            z-index: 2;
+        }
+
+        .scroll-arrow:disabled {
+            opacity: 0.2;
+            cursor: default;
+        }
+
+        .weather-widget-day.active {
+            background-color: #f0f8ff;
+            border-left: 4px solid #007bff;
+            transition: background-color 0.3s;
+        }
+
+        @media (max-width: 768px) {
+            .weather-widget {
+                flex-direction: column;
+            }
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0"></script>
+    <!-- прогноз на 10 дней общий--> 
+    <script>       
+        const dayCards = document.querySelectorAll('.day-card');
+        let tempDay = []
+        let tempNight = []
+        <?php 
+            if(isset($forecastTenDayNight)):
+            foreach($forecastTenDayNight as $day):?>
+                tempDay.push(<?=round($day['day']['parameters']['2t'])?>)
+                tempNight.push(<?=round($day['night']['parameters']['2t'])?>)
+        <?php endforeach;?>  
+        <?php endif;?>
+        dayCards.forEach(card => {
+            // Получаем ID дня, например, из data-атрибута (см. ниже, как его добавить)
+            const targetId = card.getAttribute('data-target');
+            if (!targetId) return;
+
+            card.addEventListener('click', function(e) {
+                e.preventDefault();
+                const targetElement = document.getElementById(targetId);
+                if (targetElement) {
+                    document.querySelectorAll('.weather-widget-day').forEach(el => {
+                        el.classList.remove('active');
+                    });
+                    targetElement.classList.add('active');
+                    targetElement.scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'start'
+                    });
+                }
+            });
+        });
+        // Функция для создания графика температуры
+        function createTemperatureChart() {
+            let chartContainer = document.getElementById('chart-container');
+            if (chartContainer){
+                const ctx = document.getElementById('chart-container').getContext('2d');
+            const myChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: ['*', '*', '*', '*', '*', '*', '*', '*', '*', '*'],
+                    datasets: [{
+                        label: 'День',
+                        data: tempDay,
+                        tension: 0.4,
+                        backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                        borderColor: 'rgba(54, 162, 235, 1)',
+                        borderWidth: 1,
+                        pointRadius: 3,        // Размер точек
+                        pointHoverRadius: 4,    // Размер точек при наведении
+                        datalabels: {
+                            anchor: 'end',
+                            align: 'top',
+                            formatter: (value, context) => value,
+                            font: {
+                                weight: 'bold',
+                                size: 12
+                            },
+                            color: 'black',
+                            offset: 2
+                        }
+                    },
+                    {
+                    label: 'Ночь',
+                    data: tempNight, // новые данные
+                    tension: 0.4,
+                    backgroundColor: 'rgba(255, 99, 132, 0.2)', // красный фон
+                    borderColor: 'rgba(255, 99, 132, 1)',       // красная линия
+                    borderWidth: 1,
+                    pointRadius: 3,
+                    pointHoverRadius: 4,
+                    datalabels: {
+                        align: 'start',       // 👈 привязка к ВЕРХНЕЙ границе
+                        anchor: 'center',     // центрируем по оси X
+                        clamp: true,          // не выходить за границы графика
+                        formatter: (value) => value,
+                        font: {
+                            weight: 'bold',
+                            size: 12
+                        },
+                        color: 'black',
+                        offset: 2             // небольшой отступ от края
+                    }
+                }
+                ]
+                },
+                options: {
+                    plugins: {
+                        legend: {
+                            display: false
+                        },                       
+                    },
+                    scales: {
+                        y: {
+                            display: false,
+                            min: Math.min(...tempNight) - 3,
+                            max: Math.max(...tempDay) + 3,
+                            ticks: {
+                                stepSize: 1
+                            }
+                        },
+                        x: {
+                            display: false,
+                            ticks: {
+                                padding: 1
+                            }
+                        }
+                    },
+                    layout: {
+                        padding: {
+                            left: 40,
+                            right: 20,
+                            top: 30,     // ✅ даём побольше места сверху
+                            bottom: 30   // ✅ и снизу
+                        }
+                    },
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false
+                    }
+                },
+                plugins: [ChartDataLabels] // Не забудь добавить плагин
+            });
+
+            }
+        }
+
+        // Инициализация
+        document.addEventListener('DOMContentLoaded', () => {
+            createTemperatureChart();
+        });
+
+        // Добавляем интерактивность
+        document.addEventListener('click', (e) => {
+            if (e.target.closest('.day-card')) {
+                const card = e.target.closest('.day-card');
+                const cards = document.querySelectorAll('.day-card');                
+            }
+        });
+    </script>
+    <style>
+        .weather-container {
+            background: rgba(255, 255, 255, 0.9);
+            border-radius: 15px;
+            /*margin-top: 20px;*/
+            padding: 10px 10px 0 10px;
+            /*box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);*/
+        }
+
+        .forecast-header {
+            color: #2d3436;
+            font-size: 16px;
+            font-weight: 700;
+            margin-left: 10px;
+        }
+
+        .forecast-header h2 {
+            font-size: 28px;
+            margin-bottom: 5px;
+        }
+
+        .forecast-content {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .days-container {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            overflow-x: auto;
+            padding: 10px 10px 10px 10px;
+        }
+
+        .day-card {
+            background: white;
+            border-radius: 10px;
+            padding: 15px 10px;
+            text-align: center;
+            color: black;
+            width: 100%;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s ease;
+            cursor: pointer;
+        }
+
+        .day-name {
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .day-date {
+            font-size: 12px;
+            opacity: 0.9;
+        }
+
+        .weather-icon-day {
+            margin: 0 auto 5px;
+            font-size: 20px;
+        }
+
+        .temperature {
+            font-size: 20px;
+            font-weight: bold;
+        }
+
+        .chart-container {
+            position: relative;
+            height: 150px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            padding: 20px 10px;
+        }
+
+        .chart-line {
+            position: absolute;
+            bottom: 20px;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        .chart-points {
+            position: relative;
+            height: 100%;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+        }
+
+        .chart-point {
+            position: relative;
+            width: 100px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-end;
+        }
+
+        .point-dot {
+            width: 12px;
+            height: 12px;
+            background: #ff6b6b;
+            border-radius: 50%;
+            border: 3px solid white;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+            margin-bottom: 5px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .point-dot:hover {
+            transform: scale(1.2);
+            background: #ff4757;
+        }
+
+        .point-line {
+            position: absolute;
+            bottom: 0;
+            width: 2px;
+            background: rgba(255, 255, 255, 0.3);
+            transition: height 0.5s ease;
+        }
+
+        .point-temperature {
+            color: white;
+            font-size: 12px;
+            font-weight: bold;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+            margin-top: 5px;
+        }
+
+        .temp-scale {
+            position: absolute;
+            left: 10px;
+            top: 20px;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 12px;
+        }
+
+        @media (max-width: 768px) {
+            .days-container {
+                flex-wrap: wrap;
+                justify-content: center;
+            }
+            
+            .day-card {
+                min-width: 80px;
+                padding: 10px 5px;
+            }
+            
+            .day-name {
+                font-size: 12px;
+            }
+            
+            .day-date {
+                font-size: 10px;
+            }
+            
+            .weather-icon {
+                width: 30px;
+                height: 30px;
+                font-size: 20px;
+            }
+            
+            .temperature {
+                font-size: 14px;
+            }
+        }
+    </style>
+    <!-- прогноз на 10 дней по дню -->
+    <style>
+        .weather-widget-day {
+            display: flex;
+            border-radius: 15px;
+            margin-top: 20px;
+            padding: 15px;
+            background-color: white;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+        }
+        
+        .weather-block {
+           /* flex: 1;*/
+           /* min-width: 150px;*/
+            padding: 10px;
+            width: 100%;
+        }
+        
+        .block-title {
+            font-weight: bold;
+            text-align: center;
+            font-size: 10px;
+            margin-top: 7px;
+        }
+
+        .block-title-left {
+            color: #2d3436;
+            font-weight: bold;
+            margin-bottom: 10px;
+            font-size: 16px;
+        }
+        
+        /* Левый блок с flex-строками */
+        .left-block {
+            min-width: 240px;
+        }
+
+        .day-temp-block {
+            display: flex;
+           /* align-items: center;*/
+           margin-left: 20px;
+        }
+
+        .hour-temp-unit {
+            margin-bottom: 6px;
+            font-size: 7px;
+        }
+        
+        .weather-rows {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .weather-row {
+            font-size: 10px;
+            display: flex;
+            /*justify-content: space-between;*/
+            align-items: center;
+        }
+        
+        .weather-row:last-child {
+            border-bottom: none;
+        }
+        
+        .time-period {
+            font-size: 12px;
+            font-weight: bold;
+            /*flex: 1;*/
+            text-align: left;
+        }
+        
+        .temperature {
+            font-size: 12px;
+            flex: 1;
+            text-align: center;
+        }
+        
+        .weather-icon-left {
+            /*flex: 1;*/
+            text-align: center;
+            font-size: 20px;
+            margin-left: 6px
+        }
+        
+        .description {
+            flex: 1;           
+        }
+        
+        /* Правые блоки */
+        .right-block-content {
+            display: flex;
+            flex-direction: column;
+            margin-top: 14px;
+            gap: 12px;
+        }
+        
+        .data-item {
+            font-size: 12px;
+            /* padding: 5px 0; */
+            text-align: center;
+        }
+    </style> 
+    <!-- Кнопка возврата на верх--> 
+    <style>
+        #backToTop {
+            line-height: 50px; /* чтобы иконка была по центру */
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            width: 50px;
+            height: 50px;
+            background-color: #007bff42;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            font-size: 24px;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.2);
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s ease, transform 0.3s ease;
+            z-index: 9999;
+            outline: none;
+        }
+
+        #backToTop.show {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
+        }
+
+        #backToTop:hover {
+            background-color: #1c7de782;
+            transform: translateY(-3px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+        }
+    </style> 
+    <script>
+        document.addEventListener("DOMContentLoaded", function() {
+            const btn = document.getElementById("backToTop");
+
+            // Показываем кнопку, как только пользователь прокрутил хотя бы на 1 пиксель
+            window.addEventListener("scroll", function() {
+                if (window.scrollY > 1) {
+                    btn.classList.add("show");
+                } else {
+                    btn.classList.remove("show");
+                }
+            });
+
+            // Плавная прокрутка наверх при клике
+            btn.addEventListener("click", function(e) {
+                e.preventDefault();
+                window.scrollTo({
+                    top: 0,
+                    behavior: "smooth"
+                });
+            });
+        });
+    </script>
+
     </div>
 </div>
