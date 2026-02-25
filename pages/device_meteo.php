@@ -9,16 +9,10 @@ require_once ROOT_PATH . '/classes/Device.php';
 require_once ROOT_PATH . '/classes/User.php';
 
 $current_year = $_SESSION['year'];
-$user = new User($current_year);
+$user = new User();
 
-if (isset($_GET['year']) && !empty($_GET['year'])) {
-    if($user->changeUserPeriod($_SESSION['username'], $_GET['year'])){
-        $current_year = $_SESSION['year'];
-        $user = new User($current_year);
-    }    
-}
 
-$device = new Device($current_year);
+$device = new Device();
 
 $user_period = $device->getMeteoDevicePeriod($_GET['device_id']);
 sscanf($user_period['start'], '%d-%d-%d', $yStart, $mStart, $dStart);

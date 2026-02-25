@@ -2,9 +2,10 @@
 require_once __DIR__ . '/auth.php';
 
 $scriptName = basename($_SERVER['PHP_SELF']);
-$current_year = $_GET['year'];
 
-$user = new User($current_year);
+
+
+$user = new User();
 
 
 
@@ -166,14 +167,60 @@ $user_period = $user->getUserPeriod($_SESSION['username']);
             <section class="navbar-section">
                 
                 <span class="mr-2 my-2 text-nowrap">Выберите период:</span>
-                <select class="form-select" id="device_order" style="width:35%;"
+                <select class="form-select" id="device_order" style="width:auto;"
                     onchange="updateYear(this.value)"
                 >
                     <?php foreach($device_years as $year): ?>    
                     <option value="<?=$year['year']?>" <?=$current_year == $year['year'] ? 'selected' : '' ?>><?=$year['year']?></option>
                     <?php endforeach;?>
                 </select>
-                <input class="form-select" type="text" id="datepicker" readonly placeholder="ДД.ММ.ГГГГ">
+
+                <?php if (!empty($months_for_header)): ?>
+                    <select class="form-select" id="month_selector" style="width:auto;" onchange="updateMonth(this.value)">
+                        <option value="">Выберите месяц...</option>
+                        <?php 
+                        $current_month_key = '';
+                        if (isset($_GET['date'])) {
+                            $current_month_key = date('Y-m', strtotime($_GET['date']));
+                        }
+                        ?>
+                        <?php foreach ($months_for_header as $key => $label): ?>
+                            <option value="<?= $key ?>" <?= ($key === $current_month_key) ? 'selected' : '' ?>>
+                                <?= htmlspecialchars($label) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                <?php endif; ?>
+
+            </section>
+        <?php elseif($scriptName == 'device_meteo.php'):?>
+            <section class="navbar-section">
+                
+                <span class="mr-2 my-2 text-nowrap">Выберите период:</span>
+                <select class="form-select" id="device_order" style="width:auto;"
+                    onchange="updateYear(this.value)"
+                >
+                    <?php foreach($device_years as $year): ?>    
+                    <option value="<?=$year['year']?>" <?=$current_year == $year['year'] ? 'selected' : '' ?>><?=$year['year']?></option>
+                    <?php endforeach;?>
+                </select>
+
+                <?php if (!empty($months_for_header)): ?>
+                    <select class="form-select" id="month_selector" style="width:auto;" onchange="updateMonth(this.value)">
+                        <option value="">Выберите месяц...</option>
+                        <?php 
+                        $current_month_key = '';
+                        if (isset($_GET['date'])) {
+                            $current_month_key = date('Y-m', strtotime($_GET['date']));
+                        }
+                        ?>
+                        <?php foreach ($months_for_header as $key => $label): ?>
+                            <option value="<?= $key ?>" <?= ($key === $current_month_key) ? 'selected' : '' ?>>
+                                <?= htmlspecialchars($label) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                <?php endif; ?>
             </section>
         <?php endif;?>
         <section class="navbar-section">
@@ -214,6 +261,14 @@ $user_period = $user->getUserPeriod($_SESSION['username']);
         function updateYear(year) {
             const url = new URL(window.location);
             url.searchParams.set('year', year);
+            window.location.href = url.href;
+        }
+
+        function updateMonth(month) {
+            if (!month) return;
+            const url = new URL(window.location);
+            // Устанавливаем дату в первое число выбранного месяца
+            url.searchParams.set('date', month + '-01'); 
             window.location.href = url.href;
         }
     </script>

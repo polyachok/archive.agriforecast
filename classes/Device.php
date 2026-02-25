@@ -259,15 +259,20 @@ class Device {
 
     public function getMeteoDevicePeriod($device_id = null){
         $sql = "SELECT MIN(DateReal) as start, MAX(DateReal) as finish FROM forecast.MeteoSense";
+        $params = [];
         if($device_id != null){
             $stmt = $this->db->prepare("SELECT `device_id` FROM `devices` WHERE id = ? ");
             $stmt->execute([$device_id]);
             $device = $stmt->fetch(PDO::FETCH_ASSOC);
-            $sql .= "AND station_id = ".$device['device_id'];
+            
+            if ($device && !empty($device['device_id'])) {
+                $sql .= " WHERE station_id = ?";
+                $params[] = $device['device_id'];
+            }
         }
        
         $stmt = $this->db->prepare($sql);
-        $stmt->execute();
+        $stmt->execute($params);
         return $stmt->fetch(PDO::FETCH_ASSOC); 
     }
 
@@ -1193,6 +1198,33 @@ class Device {
             $soil_db = $this->getSoilDB();
 
             $query = "SELECT DISTINCT YEAR(Date) as year FROM `soilsense` WHERE UID = ? ORDER BY year";                    
+            $stmt = $soil_db->prepare($query);
+            $stmt->execute([$uid]);
+            
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+        } catch (PDOException $e) {
+            error_log("Database error: ".$e->getMessage());
+            return [];
+        }
+    }
+
+    public function getMeteoArchiveYear($internal_id) {
+        $stmt = $this->db->prepare("SELECT `device_id` FROM `devices` WHERE id = ?");
+        $stmt->execute([$internal_id]);
+        $device = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        if (!$device || empty($device['device_id'])) {
+            error_log("Device UID not found for ID: $internal_id");
+            return [];
+        }
+        
+        $uid = $device['device_id'];
+
+        try {
+            $soil_db = $this->getSoilDB();
+
+            $query = "SELECT DISTINCT YEAR(record_time) as year FROM `MeteoSense` WHERE station_id = ? ORDER BY year";                    
             $stmt = $soil_db->prepare($query);
             $stmt->execute([$uid]);
             

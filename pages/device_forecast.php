@@ -5,6 +5,7 @@ error_reporting(E_ALL);
 ini_set('display_errors', 1); 
 
 require_once ROOT_PATH . '/includes/auth.php';
+require_once ROOT_PATH . '/includes/functions.php';
 require_once ROOT_PATH . '/classes/Device.php';
 require_once ROOT_PATH . '/classes/User.php';
 
@@ -15,14 +16,22 @@ $user = new User();
 $device = new Device();
 
 $user_period = $device->getDevicePeriod($current_year,$_GET['device_id']);
-print_r(getMonthsBetweenRu($user_period['start'], $user_period['finish']));
+$months_for_header = getMonthsBetweenRu($user_period['start'], $user_period['finish']);
 
 sscanf($user_period['start'], '%d-%d-%d', $yStart, $mStart, $dStart);
 sscanf($user_period['finish'], '%d-%d-%d', $yFinish, $mFinish, $dFinish);
 $current_date = $user_period['start'];
-$dCurrent = $dStart;
-$mCurrent = $mStart;
-$yCurrent = $yStart;
+
+if (isset($_GET['date']) && !empty($_GET['date'])) {
+    $d = DateTime::createFromFormat('Y-m-d', $_GET['date']);
+    if ($d && $d->format('Y-m-d') === $_GET['date']) {
+        $current_date = $_GET['date'];
+    }
+}
+
+sscanf($user_period['start'], '%d-%d-%d', $yStart, $mStart, $dStart);
+sscanf($user_period['finish'], '%d-%d-%d', $yFinish, $mFinish, $dFinish);
+sscanf($current_date, '%d-%d-%d', $yCurrent, $mCurrent, $dCurrent);
 
 if (!isset($_GET['device_id'])) {
    // header("Location: devices.php?error=no_device");
@@ -685,46 +694,6 @@ if($device_info){
     }
 }
 
-function getMonthsBetweenRu($startDate, $endDate) {
-    $monthsRu = [
-        '01' => 'Январь',
-        '02' => 'Февраль',
-        '03' => 'Март',
-        '04' => 'Апрель',
-        '05' => 'Май',
-        '06' => 'Июнь',
-        '07' => 'Июль',
-        '08' => 'Август',
-        '09' => 'Сентябрь',
-        '10' => 'Октябрь',
-        '11' => 'Ноябрь',
-        '12' => 'Декабрь',
-    ];
-
-    $start = new DateTime($startDate);
-    $end   = new DateTime($endDate);
-
-    $start->modify('first day of this month');
-    $end->modify('first day of this month');
-
-    $result = [];
-    $current = clone $start;
-
-    while ($current <= $end) {
-        $ym = $current->format('Y-m');          // ключ: '2025-04'
-        $m  = $current->format('m');            // '04'
-        $y  = $current->format('Y');            // '2025'
-
-        $label = $monthsRu[$m] . ' ' . $y;      // 'Апрель 2025'
-        $result[$ym] = $label;
-
-        $current->modify('+1 month');
-    }
-
-    return $result;
-}
-
-
 include ROOT_PATH . '/includes/header.php';
 ?>
 
@@ -733,35 +702,6 @@ include ROOT_PATH . '/includes/header.php';
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@2.0.1"></script>
 <script src="https://api-maps.yandex.ru/v3/?apikey=de391e7f-f29b-4166-abd5-63717adafe6e&lang=ru_RU" type="text/javascript"></script>
-<script>
-    const startDate = new Date(<?=$yStart?>, <?=$mStart - 1?>, <?=$dStart?>);   //месяцы с 0 начинаются
-    const endDate = new Date(<?=$yFinish?>, <?=$mFinish - 1?>, <?=$dFinish?>);  
-    const defaultDate = new Date(<?=$yCurrent?>, <?=$mCurrent - 1?>, <?=$dCurrent?>);  
-        new Pikaday({
-            field: document.getElementById('datepicker'),
-            minDate: startDate,
-            maxDate: endDate,
-            format: 'DD.MM.YYYY', 
-            defaultDate: defaultDate,
-            setDefaultDate: true,
-            firstDay: 1,
-            yearRange: [2020, 2030],
-            onSelect: function(selectedDate) {
-                if (selectedDate) {
-                    const formatted = moment(selectedDate).format('YYYY-MM-DD');
-                    const url = new URL(window.location);
-                    url.searchParams.set('date', formatted);
-                    window.location.href = url.href;
-                } 
-            },
-            i18n: {
-            months: ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
-                    'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'],
-            weekdays: ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'],
-            weekdaysShort: ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб']
-            }
-        });
-</script>
 
 <div class="columns">
     <div class="column col-3 hide-xs">
@@ -1531,8 +1471,7 @@ include ROOT_PATH . '/includes/header.php';
 
             function getChartOptions(isDetailed, activeParams) {
                 const now = new Date('<?=$current_date?>');
-                const overviewEnd = new Date('<?=$current_date?>');
-                overviewEnd.setDate(now.getDate() + 30);
+                const overviewEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
                 const detailedEnd = new Date('<?=$current_date?>');
                 detailedEnd.setDate(now.getDate() + 7);
                 const depthParams = activeParams.filter(p => normalizedSoilData[p] && !normalizedSoilData[p]
@@ -1859,8 +1798,7 @@ include ROOT_PATH . '/includes/header.php';
 
             function getMoistureChartOptions(isDetailed, yellow, green, blue) {
                 const now = new Date('<?=$current_date?>');
-                const overviewEnd = new Date('<?=$current_date?>');
-                overviewEnd.setDate(now.getDate() + 30);
+                const overviewEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
                 const detailedEnd = new Date('<?=$current_date?>');
                 detailedEnd.setDate(now.getDate() + 7);
 

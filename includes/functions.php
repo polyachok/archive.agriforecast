@@ -48,3 +48,42 @@ function getRoleName($role) {
         default: return 'Неизвестно';
     }
 }
+
+function getMonthsBetweenRu($startDate, $endDate) {
+    $monthsRu = [
+        '01' => 'Январь',
+        '02' => 'Февраль',
+        '03' => 'Март',
+        '04' => 'Апрель',
+        '05' => 'Май',
+        '06' => 'Июнь',
+        '07' => 'Июль',
+        '08' => 'Август',
+        '09' => 'Сентябрь',
+        '10' => 'Октябрь',
+        '11' => 'Ноябрь',
+        '12' => 'Декабрь',
+    ];
+
+    $start = new DateTime($startDate);
+    $end   = new DateTime($endDate);
+
+    $start->modify('first day of this month');
+    $end->modify('first day of this month');
+
+    $result = [];
+    $current = clone $start;
+
+    while ($current <= $end) {
+        $ym = $current->format('Y-m');
+        $m  = $current->format('m');
+        $y  = $current->format('Y');
+
+        $label = $monthsRu[$m] . ' ' . $y;
+        $result[$ym] = $label;
+
+        $current->modify('+1 month');
+    }
+
+    return $result;
+}

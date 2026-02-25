@@ -1,6 +1,12 @@
 <?php
 define('ROOT_PATH', dirname(__DIR__));
 require_once ROOT_PATH . '/includes/auth.php';
+
+if ($_SESSION['role'] != ROLE_ADMIN) {
+    header('Location: /login.php');
+    exit();
+}
+
 require_once ROOT_PATH . '/classes/Device.php';
 require_once ROOT_PATH . '/classes/User.php';
 require_once ROOT_PATH . '/classes/Organization.php';
@@ -15,170 +21,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_SERVER['HTTP_X_REQUESTED_WIT
     $response = ['success' => false, 'message' => 'Неизвестная ошибка'];
     
     try {
-        if (isset($_POST['delete'])) {
-            if ($_SESSION['role'] != ROLE_ADMIN) {
-                throw new Exception('Только администратор может удалять устройства');
-            }
-            
-            if ($device->deleteDevice($_POST['device_id'])) {
-                $response = ['success' => true, 'message' => 'Устройство удалено'];
-            } else {
-                throw new Exception('Ошибка при удалении');
-            }
-        } 
-        elseif (isset($_POST['edit'])) {
-            $id = $_POST['id'];
-            $device_info = $device->getDevice($id);
-            
-            if ($_SESSION['role'] == ROLE_USER) {
-                $user_org = $user->getUserOrganization($_SESSION['user_id']);
-                if (!$user_org || $device_info['organization_id'] != $user_org['id']) {
-                    throw new Exception('Нет прав на редактирование этого устройства');
-                }
-            } elseif ($_SESSION['role'] == ROLE_DEALER) {
-                $user_org = $user->getUserOrganization($_SESSION['user_id']);
-                $device_org = $organization->getOrganization($device_info['organization_id']);
-                
-                if (!$user_org || !$device_org || 
-                    ($device_org['id'] != $user_org['id'] && $device_org['dealer_id'] != $user_org['id'])) {
-                    throw new Exception('Нет прав на редактирование этого устройства');
-                }
-            }
-            
-            if ($_POST['device_id'] != $device_info['device_id'] && $_SESSION['role'] != ROLE_ADMIN) {
-                throw new Exception('Только администратор может изменять ID устройства');
-            }
-
-            if ($_POST['device_type'] != $device_info['device_type'] && $_SESSION['role'] != ROLE_ADMIN) {
-                throw new Exception('Только администратор может изменять тип устройства');
-            }
-            
-            $device_id = $_POST['device_id'];
-            $name = $_POST['name'];
-            $device_type = $_POST['device_type'];
-            $coordinates = $_POST['coordinates'];
-            
-            if ($coordinates !== '' && !preg_match('/^-?\d+\.?\d*,-?\d+\.?\d*$/', $coordinates)) {
-                throw new Exception('Некорректные координаты');
-            }
-            
-            $organization_id = null;
-            if ($_SESSION['role'] == ROLE_ADMIN && isset($_POST['organization_id'])) {
-                $organization_id = $_POST['organization_id'] ? (int)$_POST['organization_id'] : null;
-            }
-
-            $humidity_count = null;
-            if ($device_type == 'VP' && isset($_POST['humidity_count'])) {
-                $humidity_count = max(1, min(6, (int)$_POST['humidity_count']));
-            }
-
-            if ($_SESSION['role'] == ROLE_ADMIN && isset($_POST['services'])) {
-                $services = $_POST['services'];
-                $forecast_enabled = isset($services['forecast']) ? 1 : 0;
-                $realdata_enabled = isset($services['realdata']) ? 1 : 0;
-                $analytics_enabled = isset($services['analytics']) ? 1 : 0;
-                $calculations_enabled = isset($services['calculations']) ? 1 : 0;
-                
-                $device->updateDeviceServices($id, $forecast_enabled, $realdata_enabled, $analytics_enabled, $calculations_enabled);
-            }
-            
-            if ($_SESSION['role'] == ROLE_ADMIN && isset($_POST['meteostation_id'])) {
-                $meteostation_id = $_POST['meteostation_id'] ? (int)$_POST['meteostation_id'] : null;
-                
-                if ($meteostation_id) {
-                    $device->linkDeviceToMeteostation($id, $meteostation_id);
-                } else {
-                    $device->unlinkDeviceFromMeteostation($id);
-                }
-            }
-
-            $contract_start_date = $_POST['contract_start_date'] ?: null;
-            $contract_end_date = $_POST['contract_end_date'] ?: null;
-            
-            if ($device->updateDevice($id, $device_id, $name, $device_type, $coordinates, $organization_id, $humidity_count, $contract_start_date, $contract_end_date)) {
-                $response = ['success' => true, 'message' => 'Устройство обновлено'];
-            } else {
-                throw new Exception('Ошибка при обновлении');
-            }
-        }
-        elseif (isset($_POST['create'])) {
-
-            if ($_SESSION['role'] != ROLE_ADMIN) {
-                throw new Exception('Только администратор может создавать устройства');
-            }
-            
-            $coordinates = $_POST['coordinates'];
-            if ($coordinates !== '' && !preg_match('/^-?\d+\.?\d*,-?\d+\.?\d*$/', $coordinates)) {
-                throw new Exception('Некорректные координаты');
-            }
-            
-            $organization_id = null;
-            
-            if ($_SESSION['role'] == ROLE_ADMIN) {
-                $organization_id = isset($_POST['organization_id']) ? ($_POST['organization_id'] ? (int)$_POST['organization_id'] : null) : null;
-            } elseif ($_SESSION['role'] == ROLE_DEALER) {
-                $user_org = $user->getUserOrganization($_SESSION['user_id']);
-                $organization_id = $user_org ? $user_org['id'] : null;
-            } elseif ($_SESSION['role'] == ROLE_USER) {
-                $user_org = $user->getUserOrganization($_SESSION['user_id']);
-                $organization_id = $user_org ? $user_org['id'] : null;
-            }
-            
-            $humidity_count = null;
-            if ($_POST['device_type'] == 'VP' && isset($_POST['humidity_count'])) {
-                $humidity_count = max(1, min(6, (int)$_POST['humidity_count']));
-            }
-
-            $contract_start_date = $_POST['contract_start_date'] ?: null;
-            $contract_end_date = $_POST['contract_end_date'] ?: null;
-            
-            if ($device->createDevice($_POST['device_id'], $_POST['name'], $_POST['device_type'], $coordinates, $_SESSION['user_id'], $organization_id, $humidity_count, $contract_start_date, $contract_end_date)) {
-                $response = ['success' => true, 'message' => 'Устройство создано'];
-            } else {
-                throw new Exception('Ошибка при создании');
-            }
-        }
-        elseif (isset($_POST['toggle_service'])) {
-            if ($_SESSION['role'] != ROLE_ADMIN) {
-                throw new Exception('Только администратор может управлять сервисами устройств');
-            }
-            
-            $device_id = (int)$_POST['device_id'];
-            $service = $_POST['service'];
-            $enabled = (bool)$_POST['enabled'];
-            
-            switch ($service) {
-                case 'forecast':
-                    $device->updateDeviceServices($device_id, $enabled, null, null, null);
-                    break;
-                case 'realdata':
-                    $device->updateDeviceServices($device_id, null, $enabled, null, null);
-                    break;
-                case 'analytics':
-                    $device->updateDeviceServices($device_id, null, null, $enabled, null);
-                    break;
-                case 'calculations':
-                    $device->updateDeviceServices($device_id, null, null, null, $enabled);
-                    break;
-                default:
-                    throw new Exception('Неизвестный тип сервиса');
-            }
-            
-            $response = ['success' => true, 'message' => 'Статус сервиса изменен'];
-        }
-        elseif (isset($_POST['restore_device'])) {
-            if ($_SESSION['role'] != ROLE_ADMIN) {
-                throw new Exception('Только администратор может восстанавливать устройства');
-            }
-            
-            $device_id = (int)$_POST['device_id'];
-            
-            if ($device->restoreDevice($device_id)) {
-                $response = ['success' => true, 'message' => 'Устройство восстановлено'];
-            } else {
-                throw new Exception('Ошибка при восстановлении устройства');
-            }
-        }
+        
+        
     } catch (Exception $e) {
         $response = ['success' => false, 'message' => $e->getMessage()];
     }
@@ -187,38 +31,14 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_SERVER['HTTP_X_REQUESTED_WIT
     exit();
 }
 
-$show_deleted = isset($_GET['show_deleted']) && $_GET['show_deleted'] == 1;
+$devices = $device->getAllDevices();
 
-if ($_SESSION['role'] == ROLE_ADMIN) {
-    $devices = $device->getAllDevices($show_deleted);
-} elseif ($_SESSION['role'] == ROLE_DEALER) {
-    $user_org = $user->getUserOrganization($_SESSION['user_id']);
-    if ($user_org) {
-        $devices = $device->getDealerDevices($user_org['id'], $show_deleted);
-    } else {
-        $devices = [];
-    }
-} else {
-    $user_org = $user->getUserOrganization($_SESSION['user_id']);
-    if ($user_org) {
-        $devices = $device->getOrganizationDevices($user_org['id'], $show_deleted);
-    } else {
-        $devices = [];
-    }
-}
+$organizations_list = $organization->getAllOrganizations(false);
 
-$organizations_list = [];
-if ($_SESSION['role'] == ROLE_ADMIN) {
-    $organizations_list = $organization->getAllOrganizations(false);
-}
-
-$meteostations = [];
-if ($_SESSION['role'] == ROLE_ADMIN) {
-    $all_devices = $device->getAllDevices();
-    $meteostations = array_filter($all_devices, function($d) {
-        return $d['device_type'] == 'M';
-    });
-}
+$all_devices = $device->getAllDevices();
+$meteostations = array_filter($all_devices, function($d) {
+    return $d['device_type'] == 'M';
+});
 
 include ROOT_PATH . '/includes/header.php';
 ?>
@@ -253,124 +73,124 @@ include ROOT_PATH . '/includes/header.php';
         background-color: #ffcdd2;
     }
     
-.action-buttons {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    align-items: center;
-    min-width: 40px;
-}
-
-.action-btn {
-    width: 32px;
-    height: 32px;
-    padding: 6px;
-    border-radius: 4px;
-    border: 1px solid;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    font-size: 12px;
-}
-
-.action-btn:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-}
-
-.action-btn i {
-    margin: 0;
-}
-
-.btn-edit {
-    background-color: #5755d9;
-    border-color: #5755d9;
-    color: white;
-}
-
-.btn-edit:hover {
-    background-color: #4b48d6;
-    border-color: #4b48d6;
-    color: white;
-}
-
-.btn-delete {
-    background-color: #e85600;
-    border-color: #e85600;
-    color: white;
-}
-
-.btn-delete:hover {
-    background-color: #d64500;
-    border-color: #d64500;
-    color: white;
-}
-
-.btn-service {
-    background-color: #32b643;
-    border-color: #32b643;
-    color: white;
-}
-
-.btn-service:hover {
-    background-color: #28a138;
-    border-color: #28a138;
-    color: white;
-}
-
-.btn-forecast {
-    background-color: #ffb700;
-    border-color: #ffb700;
-    color: white;
-}
-
-.btn-forecast:hover {
-    background-color: #e6a500;
-    border-color: #e6a500;
-    color: white;
-}
-
-.btn-meteo {
-    background-color: #667eea;
-    border-color: #667eea;
-    color: white;
-}
-
-.btn-meteo:hover {
-    background-color: #5a6fd8;
-    border-color: #5a6fd8;
-    color: white;
-}
-
-.btn-restore {
-    background-color: #32b643;
-    border-color: #32b643;
-    color: white;
-}
-
-.btn-restore:hover {
-    background-color: #28a138;
-    border-color: #28a138;
-    color: white;
-}
-
-/* Адаптивность для мобильных устройств */
-@media (max-width: 768px) {
     .action-buttons {
-        flex-direction: row;
-        flex-wrap: wrap;
-        justify-content: center;
-        min-width: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        align-items: center;
+        min-width: 40px;
     }
-    
+
     .action-btn {
-        width: 28px;
-        height: 28px;
-        font-size: 10px;
+        width: 32px;
+        height: 32px;
+        padding: 6px;
+        border-radius: 4px;
+        border: 1px solid;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        font-size: 12px;
     }
-}
+
+    .action-btn:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+
+    .action-btn i {
+        margin: 0;
+    }
+
+    .btn-edit {
+        background-color: #5755d9;
+        border-color: #5755d9;
+        color: white;
+    }
+
+    .btn-edit:hover {
+        background-color: #4b48d6;
+        border-color: #4b48d6;
+        color: white;
+    }
+
+    .btn-delete {
+        background-color: #e85600;
+        border-color: #e85600;
+        color: white;
+    }
+
+    .btn-delete:hover {
+        background-color: #d64500;
+        border-color: #d64500;
+        color: white;
+    }
+
+    .btn-service {
+        background-color: #32b643;
+        border-color: #32b643;
+        color: white;
+    }
+
+    .btn-service:hover {
+        background-color: #28a138;
+        border-color: #28a138;
+        color: white;
+    }
+
+    .btn-forecast {
+        background-color: #ffb700;
+        border-color: #ffb700;
+        color: white;
+    }
+
+    .btn-forecast:hover {
+        background-color: #e6a500;
+        border-color: #e6a500;
+        color: white;
+    }
+
+    .btn-meteo {
+        background-color: #667eea;
+        border-color: #667eea;
+        color: white;
+    }
+
+    .btn-meteo:hover {
+        background-color: #5a6fd8;
+        border-color: #5a6fd8;
+        color: white;
+    }
+
+    .btn-restore {
+        background-color: #32b643;
+        border-color: #32b643;
+        color: white;
+    }
+
+    .btn-restore:hover {
+        background-color: #28a138;
+        border-color: #28a138;
+        color: white;
+    }
+
+    /* Адаптивность для мобильных устройств */
+    @media (max-width: 768px) {
+        .action-buttons {
+            flex-direction: row;
+            flex-wrap: wrap;
+            justify-content: center;
+            min-width: auto;
+        }
+        
+        .action-btn {
+            width: 28px;
+            height: 28px;
+            font-size: 10px;
+        }
+    }
 </style>
 
 <div class="columns">
@@ -380,46 +200,22 @@ include ROOT_PATH . '/includes/header.php';
     
     <div class="column col-9 col-xs-12">  
         <h2>Управление устройствами</h2>
-        <?php displayMessages(); ?>
-        
-        <?php if ($_SESSION['role'] <= ROLE_DEALER): ?>
-        <div class="form-group">
-            <label class="form-switch">
-                <input type="checkbox" id="showDeletedToggle" <?= $show_deleted ? 'checked' : '' ?>>
-                <i class="form-icon"></i> Показывать только удаленные устройства
-            </label>
-        </div>
-        <?php endif; ?>
-
-        <?php if ($_SESSION['role'] == ROLE_ADMIN): ?>
-        <button class="btn btn-primary" onclick="openCreateModal()" style="margin-bottom: 15px;">Добавить устройство</button>
-        <?php endif; ?>
-        
+        <?php displayMessages(); ?>      
         <table id="devicesTable" class="table table-striped table-hover">
             <thead>
                 <tr>
                     <th>ID</th>
                     <th>Название</th>
                     <th>Тип</th>
-                    <th>Статус</th>
-                    <?php if ($_SESSION['role'] <= ROLE_DEALER): ?>
                     <th>Организация</th>
-                    <?php endif; ?>
-                    <?php if ($_SESSION['role'] == ROLE_ADMIN): ?>
-                    <th>Сервисы</th>
-                    <?php endif; ?>
                     <th>Действия</th>
                 </tr>
             </thead>
             <tbody>
                 <?php
                 $filtered_devices = [];
-                foreach ($devices as $d) {
-                    if ($show_deleted && isset($d['is_deleted']) && $d['is_deleted']) {
-                        $filtered_devices[] = $d;
-                    } elseif (!$show_deleted && (!isset($d['is_deleted']) || !$d['is_deleted'])) {
-                        $filtered_devices[] = $d;
-                    }
+                foreach ($devices as $d) {                    
+                    $filtered_devices[] = $d;                  
                 }
                 foreach ($filtered_devices as $d):
                     $device_org = null;
@@ -438,119 +234,42 @@ include ROOT_PATH . '/includes/header.php';
                     <td><?= htmlspecialchars($d['device_id']) ?></td>
                     <td><?= htmlspecialchars($d['name']) ?></td>
                     <td><?= $d['device_type'] == 'M' ? 'Метеостанция' : ($d['device_type'] == 'VP' ? 'Влажность почвы' : 'Другое') ?></td>
-                    <td>
-                        <?php if (isset($d['is_blocked']) && $d['is_blocked']): ?>
-                            <span class="label label-error">Заблокировано</span>
-                        <?php elseif (isset($d['is_deleted']) && $d['is_deleted']): ?>
-                            <span class="label label-warning">Удалено</span>
-                        <?php else: ?>
-                            <span class="label label-success">Активно</span>
-                        <?php endif; ?>
-                    </td>
                     
-                    <?php if ($_SESSION['role'] <= ROLE_DEALER): ?>
                     <td><?= $device_org ? htmlspecialchars($device_org['name']) : 'Не назначена' ?></td>
-                    <?php endif; ?>
-                    
-                    <?php if ($_SESSION['role'] == ROLE_ADMIN): ?>
-                    <td>
-                        <div class="service-toggles">
-                            <label class="form-switch service-toggle">
-                                <input type="checkbox" <?= $d['is_forecast_enabled'] ? 'checked' : '' ?> 
-                                       onchange="toggleDeviceService(<?= $d['id'] ?>, 'forecast', this.checked)">
-                                <i class="form-icon"></i> Прогноз
-                            </label>
-                            
-                            <label class="form-switch service-toggle">
-                                <input type="checkbox" <?= $d['is_realdata_enabled'] ? 'checked' : '' ?>
-                                       onchange="toggleDeviceService(<?= $d['id'] ?>, 'realdata', this.checked)">
-                                <i class="form-icon"></i> Реальные данные
-                            </label>
-                            
-                            <label class="form-switch service-toggle">
-                                <input type="checkbox" <?= $d['is_analytics_enabled'] ? 'checked' : '' ?>
-                                       onchange="toggleDeviceService(<?= $d['id'] ?>, 'analytics', this.checked)">
-                                <i class="form-icon"></i> Аналитика
-                            </label>
-                            
-                            <label class="form-switch service-toggle">
-                                <input type="checkbox" <?= $d['is_calculations_enabled'] ? 'checked' : '' ?>
-                                       onchange="toggleDeviceService(<?= $d['id'] ?>, 'calculations', this.checked)">
-                                <i class="form-icon"></i> Расчеты
-                            </label>
-                        </div>
-                        
-                        <?php if ($d['device_type'] != 'M' && $linked_meteostation): ?>
-                        <div class="linked-meteostation">
-                            <small>Связанная метеостанция: <?= htmlspecialchars($linked_meteostation['name']) ?></small>
-                        </div>
-                        <?php endif; ?>
-                    </td>
-                    <?php endif; ?>
                     
                     <td>
-    <div class="action-buttons">
-        <?php if (!isset($d['is_deleted']) || !$d['is_deleted']): ?>
-        <button class="action-btn btn-edit btn btn-sm" 
-                title="Редактировать устройство"
-                onclick="openEditModal({
-                    id: <?= $d['id'] ?>,
-                    device_id: '<?= htmlspecialchars($d['device_id'], ENT_QUOTES) ?>',
-                    name: '<?= htmlspecialchars($d['name'], ENT_QUOTES) ?>',
-                    device_type: '<?= htmlspecialchars($d['device_type'], ENT_QUOTES) ?>',
-                    coordinates: <?= $d['coordinates'] ? '\''.htmlspecialchars($d['coordinates'], ENT_QUOTES).'\'' : 'null' ?>,
-                    organization_id: <?= $d['organization_id'] ?: 'null' ?>,
-                    is_forecast_enabled: <?= $d['is_forecast_enabled'] ? 'true' : 'false' ?>,
-                    is_realdata_enabled: <?= $d['is_realdata_enabled'] ? 'true' : 'false' ?>,
-                    is_analytics_enabled: <?= $d['is_analytics_enabled'] ? 'true' : 'false' ?>,
-                    is_calculations_enabled: <?= $d['is_calculations_enabled'] ? 'true' : 'false' ?>,
-                    linked_meteostation_id: <?= $d['linked_meteostation_id'] ?: 'null' ?>,
-                    humidity_count: <?= isset($d['humidity_count']) ? $d['humidity_count'] : 3 ?>,
-                    contract_start_date: '<?= htmlspecialchars($d['contract_start_date'] ?? '', ENT_QUOTES) ?>',
-                    contract_end_date: '<?= htmlspecialchars($d['contract_end_date'] ?? '', ENT_QUOTES) ?>'
-                })">
-            <i class="fas fa-edit"></i>
-        </button>
-        
-        <?php if ($_SESSION['role'] == ROLE_ADMIN): ?>
-        <button class="action-btn btn-delete btn btn-sm" 
-                title="Удалить устройство"
-                onclick="deleteDevice(<?= $d['id'] ?>)">
-            <i class="fas fa-trash"></i>
-        </button>
-        <button class="action-btn btn-service btn btn-sm" 
-                title="Сервисное меню за последние 7 суток"
-                onclick="openServiceMenu('<?= htmlspecialchars($d['device_id'], ENT_QUOTES) ?>', '<?= htmlspecialchars($d['device_type'], ENT_QUOTES) ?>')">
-            <i class="fas fa-tools"></i>
-        </button>
-        <?php endif; ?>
-        
+                        <div class="action-buttons">
+                            <?php if (!isset($d['is_deleted']) || !$d['is_deleted']): ?>                            
+                           
+                           <!-- <button class="action-btn btn-service btn btn-sm" 
+                                    title="Сервисное меню за последние 7 суток"
+                                    onclick="openServiceMenu('<?= htmlspecialchars($d['device_id'], ENT_QUOTES) ?>', '<?= htmlspecialchars($d['device_type'], ENT_QUOTES) ?>')">
+                                <i class="fas fa-tools"></i>
+                            </button>-->
 
-        <?php if ($d['device_type'] == 'VP'): ?>
-        <button class="action-btn btn-forecast btn btn-sm" 
-                title="Показать прогноз влажности"
-                onclick="window.location.href='device_forecast.php?device_id=<?= $d['id'] ?>'">
-            <i class="fas fa-chart-line"></i>
-        </button>
-        <?php elseif ($d['device_type'] == 'M'): ?>
-        <button class="action-btn btn-meteo btn btn-sm" 
-                title="Показать метеоданные"
-                onclick="window.location.href='device_meteo.php?device_id=<?= $d['id'] ?>'">
-            <i class="fas fa-cloud-sun"></i>
-        </button>
-        <?php endif; ?>
-        
-        <?php else: ?>
-        <?php if ($_SESSION['role'] == ROLE_ADMIN): ?>
-        <button class="action-btn btn-restore btn btn-sm" 
-                title="Восстановить устройство"
-                onclick="restoreDevice(<?= $d['id'] ?>)">
-            <i class="fas fa-undo"></i>
-        </button>
-        <?php endif; ?>
-        <?php endif; ?>
-    </div>
-</td>
+                            <?php if ($d['device_type'] == 'VP'): ?>
+                            <button class="action-btn btn-forecast btn btn-sm" 
+                                    title="Показать прогноз влажности"
+                                    onclick="window.location.href='device_forecast.php?device_id=<?= $d['id'] ?>'">
+                                <i class="fas fa-chart-line"></i>
+                            </button>
+                            <?php elseif ($d['device_type'] == 'M'): ?>
+                            <button class="action-btn btn-meteo btn btn-sm" 
+                                    title="Показать метеоданные"
+                                    onclick="window.location.href='device_meteo.php?device_id=<?= $d['id'] ?>'">
+                                <i class="fas fa-cloud-sun"></i>
+                            </button>
+                            <?php endif; ?>
+                            
+                            <?php else: ?>
+                           <!-- <button class="action-btn btn-restore btn btn-sm" 
+                                    title="Восстановить устройство"
+                                    onclick="restoreDevice(<?= $d['id'] ?>)">
+                                <i class="fas fa-undo"></i>
+                            </button>-->
+                            <?php endif; ?>
+                        </div>
+                    </td>
                 </tr>
                 <?php endforeach; ?>
             </tbody>
@@ -558,208 +277,9 @@ include ROOT_PATH . '/includes/header.php';
     </div>
 </div>
 
-<div class="modal" id="createModal">
-    <div class="modal-overlay" onclick="closeCreateModal()"></div>
-    <div class="modal-container">
-        <div class="modal-header">
-            <button class="btn btn-clear float-right" onclick="closeCreateModal()"></button>
-            <h3>Создать новое устройство</h3>
-        </div>
-        <div class="modal-body">
-            <form id="createForm">
-                <div class="form-group">
-                    <label class="form-label" for="create_device_id">ID устройства</label>
-                    <input class="form-input" type="text" id="create_device_id" name="device_id" required>
-                </div>
-                <div class="form-group">
-                    <label class="form-label" for="create_name">Название</label>
-                    <input class="form-input" type="text" id="create_name" name="name" required>
-                </div>
-                <div class="form-group">
-                    <label class="form-label" for="create_device_type">Тип устройства</label>
-                    <select class="form-select" id="create_device_type" name="device_type" onchange="toggleHumidityCountField('create')">
-                        <option value="VP">Влажность почвы</option>
-                        <option value="M">Метеостанция</option>
-                        <option value="OTHER">Другое</option>
-                    </select>
-                </div>
-                
-                <div class="form-group" id="create_humidity_count_group">
-                    <label class="form-label" for="create_humidity_count">Количество уровней влажности (1-6)</label>
-                    <input class="form-input" type="number" id="create_humidity_count" name="humidity_count" min="1" max="6" value="3">
-                    <small class="form-input-hint">Определяет количество уровней глубины для расчета влагозапаса (5см, 15см, 25см, 35см, 45см, 55см)</small>
-                </div>
-                
-                <div class="form-group">
-                    <label class="form-label">Координаты</label>
-                    <div id="createMap"></div>
-                    <input class="form-input" type="text" id="create_coordinates" name="coordinates" placeholder="55.7558,37.6173" style="margin-top: 10px;">
-                </div>
 
-                <div class="form-group">
-                    <label class="form-label" for="create_contract_start_date">Начало эксплуатации</label>
-                    <input class="form-input" type="date" id="create_contract_start_date" name="contract_start_date">
-                </div>
-                <div class="form-group">
-                    <label class="form-label" for="create_contract_end_date">Окончание эксплуатации</label>
-                    <input class="form-input" type="date" id="create_contract_end_date" name="contract_end_date">
-                </div>
-                
-                <?php if ($_SESSION['role'] == ROLE_ADMIN): ?>
-                <div class="form-group">
-                    <label class="form-label" for="create_organization_id">Организация</label>
-                    <select class="form-select" id="create_organization_id" name="organization_id">
-                        <option value="">Не назначена</option>
-                        <?php foreach ($organizations_list as $org): ?>
-                        <option value="<?= $org['id'] ?>"><?= htmlspecialchars($org['name']) ?> (<?= $org['type'] == 'dealer' ? 'Дилер' : 'Клиент' ?>)</option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
-                
-                <div class="form-group">
-                    <label class="form-label">Сервисы</label>
-                    <div>
-                        <label class="form-checkbox">
-                            <input type="checkbox" name="services[forecast]" checked>
-                            <i class="form-icon"></i> Прогноз
-                        </label>
-                        <label class="form-checkbox">
-                            <input type="checkbox" name="services[realdata]" checked>
-                            <i class="form-icon"></i> Реальные данные
-                        </label>
-                        <label class="form-checkbox">
-                            <input type="checkbox" name="services[analytics]">
-                            <i class="form-icon"></i> Аналитика
-                        </label>
-                        <label class="form-checkbox">
-                            <input type="checkbox" name="services[calculations]">
-                            <i class="form-icon"></i> Расчеты
-                        </label>
-                    </div>
-                </div>
-                
-                <div class="form-group" id="create_meteostation_group" style="display: none;">
-                    <label class="form-label" for="create_meteostation_id">Связанная метеостанция</label>
-                    <select class="form-select" id="create_meteostation_id" name="meteostation_id">
-                        <option value="">Нет</option>
-                        <?php foreach ($meteostations as $m): ?>
-                        <option value="<?= $m['id'] ?>"><?= htmlspecialchars($m['name']) ?> (<?= htmlspecialchars($m['device_id']) ?>)</option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
-                <?php endif; ?>
-            </form>
-        </div>
-        <div class="modal-footer">
-            <button class="btn btn-primary" onclick="submitCreateForm()">Создать</button>
-            <button class="btn btn-link" onclick="closeCreateModal()">Отмена</button>
-        </div>
-    </div>
-</div>
 
-<div class="modal" id="editModal">
-    <div class="modal-overlay" onclick="closeEditModal()"></div>
-    <div class="modal-container">
-        <div class="modal-header">
-            <button class="btn btn-clear float-right" onclick="closeEditModal()"></button>
-            <h3>Редактировать устройство</h3>
-        </div>
-        <div class="modal-body">
-            <form id="editForm">
-                <input type="hidden" id="edit_id" name="id">
-                
-                <div class="form-group">
-                    <label class="form-label" for="edit_device_id">ID устройства</label>
-                    <input class="form-input" type="text" id="edit_device_id" name="device_id" required <?= $_SESSION['role'] != ROLE_ADMIN ? 'readonly' : '' ?>>
-                </div>
-                <div class="form-group">
-                    <label class="form-label" for="edit_name">Название</label>
-                    <input class="form-input" type="text" id="edit_name" name="name" required>
-                </div>
-                <div class="form-group">
-                    <label class="form-label" for="edit_device_type">Тип устройства</label>
-                    <select class="form-select" id="edit_device_type" name="device_type" <?= $_SESSION['role'] != ROLE_ADMIN ? 'disabled' : '' ?> onchange="toggleHumidityCountField('edit')">
-                        <option value="VP">Влажность почвы</option>
-                        <option value="M">Метеостанция</option>
-                        <option value="OTHER">Другое</option>
-                    </select>
-                    <?php if ($_SESSION['role'] != ROLE_ADMIN): ?>
-                    <input type="hidden" id="edit_device_type_hidden" name="device_type">
-                    <?php endif; ?>
-                </div>
-                
-                <div class="form-group" id="edit_humidity_count_group">
-                    <label class="form-label" for="edit_humidity_count">Количество уровней влажности (1-6)</label>
-                    <input class="form-input" type="number" id="edit_humidity_count" name="humidity_count" min="1" max="6" value="3">
-                    <small class="form-input-hint">Определяет количество уровней глубины для расчета влагозапаса (5см, 15см, 25см, 35см, 45см, 55см)</small>
-                </div>
-                
-                <div class="form-group">
-                    <label class="form-label">Координаты</label>
-                    <div id="editMap"></div>
-                    <input class="form-input" type="text" id="edit_coordinates" name="coordinates" placeholder="55.7558,37.6173" style="margin-top: 10px;">
-                </div>
 
-                <div class="form-group">
-                    <label class="form-label" for="edit_contract_start_date">Начало эксплуатации</label>
-                    <input class="form-input" type="date" id="edit_contract_start_date" name="contract_start_date">
-                </div>
-                <div class="form-group">
-                    <label class="form-label" for="edit_contract_end_date">Окончание эксплуатации</label>
-                    <input class="form-input" type="date" id="edit_contract_end_date" name="contract_end_date">
-                </div>
-                
-                <?php if ($_SESSION['role'] == ROLE_ADMIN): ?>
-                <div class="form-group">
-                    <label class="form-label" for="edit_organization_id">Организация</label>
-                    <select class="form-select" id="edit_organization_id" name="organization_id">
-                        <option value="">Не назначена</option>
-                        <?php foreach ($organizations_list as $org): ?>
-                        <option value="<?= $org['id'] ?>"><?= htmlspecialchars($org['name']) ?> (<?= $org['type'] == 'dealer' ? 'Дилер' : 'Клиент' ?>)</option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
-                
-                <div class="form-group">
-                    <label class="form-label">Сервисы</label>
-                    <div>
-                        <label class="form-checkbox">
-                            <input type="checkbox" id="edit_forecast_enabled" name="services[forecast]">
-                            <i class="form-icon"></i> Прогноз
-                        </label>
-                        <label class="form-checkbox">
-                            <input type="checkbox" id="edit_realdata_enabled" name="services[realdata]">
-                            <i class="form-icon"></i> Реальные данные
-                        </label>
-                        <label class="form-checkbox">
-                            <input type="checkbox" id="edit_analytics_enabled" name="services[analytics]">
-                            <i class="form-icon"></i> Аналитика
-                        </label>
-                        <label class="form-checkbox">
-                            <input type="checkbox" id="edit_calculations_enabled" name="services[calculations]">
-                            <i class="form-icon"></i> Расчеты
-                        </label>
-                    </div>
-                </div>
-                
-                <div class="form-group" id="edit_meteostation_group">
-                    <label class="form-label" for="edit_meteostation_id">Связанная метеостанция</label>
-                    <select class="form-select" id="edit_meteostation_id" name="meteostation_id">
-                        <option value="">Нет</option>
-                        <?php foreach ($meteostations as $m): ?>
-                        <option value="<?= $m['id'] ?>"><?= htmlspecialchars($m['name']) ?> (<?= htmlspecialchars($m['device_id']) ?>)</option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
-                <?php endif; ?>
-            </form>
-        </div>
-        <div class="modal-footer">
-            <button class="btn btn-primary" onclick="submitEditForm()">Сохранить</button>
-            <button class="btn btn-link" onclick="closeEditModal()">Отмена</button>
-        </div>
-    </div>
-</div>
 
 <script src="https://api-maps.yandex.ru/2.1/?lang=ru_RU" type="text/javascript"></script>
 <script>
@@ -989,39 +509,6 @@ include ROOT_PATH . '/includes/header.php';
         })
         .catch(error => {
             showMessage('error', 'Ошибка сети');
-        });
-    }
-    
-    function toggleDeviceService(deviceId, service, enabled) {
-        const formData = new FormData();
-        formData.append('toggle_service', '1');
-        formData.append('device_id', deviceId);
-        formData.append('service', service);
-        formData.append('enabled', enabled ? '1' : '0');
-        
-        fetch(window.location.href, {
-            method: 'POST',
-            headers: {
-                'X-Requested-With': 'XMLHttpRequest'
-            },
-            body: formData
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                showMessage('success', data.message);
-            } else {
-                showMessage('error', data.message);
-                setTimeout(() => {
-                    window.location.reload();
-                }, 1000);
-            }
-        })
-        .catch(error => {
-            showMessage('error', 'Ошибка сети');
-            setTimeout(() => {
-                window.location.reload();
-            }, 1000);
         });
     }
     

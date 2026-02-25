@@ -9,31 +9,16 @@ $current_role = $_SESSION['role'] ?? 0;
         </li>
 
         <?php if ($current_role == ROLE_ADMIN): ?>
-        <li class="nav-item <?= $current_page === 'organizations.php' ? 'active' : '' ?>">
-            <a href="/pages/organizations.php">
-                <i class="fas fa-building"></i> Организации
-            </a>
-        </li>
-        <?php endif; ?>
-
-        <?php if ($current_role == ROLE_ADMIN || $current_role == ROLE_DEALER): ?>
-        <li class="nav-item <?= $current_page === 'users.php' ? 'active' : '' ?>">
-            <a href="/pages/users.php">
-                <i class="fas fa-users"></i>
-                <?= $current_role == ROLE_ADMIN ? 'Все пользователи' : 'Мои пользователи' ?>
-            </a>
-        </li>
-        <?php endif; ?>
-
+      
         <li class="nav-item <?= $current_page == 'devices.php' ? 'active' : '' ?>">
             <a href="/pages/devices.php"><i class="fas fa-microchip"></i> Приборы</a>
         </li>
+        <?php endif; ?>
+       
+
+        
 
         <?php if ($current_role == ROLE_ADMIN): ?>
-        <li class="nav-item <?= $current_page === 'device-groups.php' ? 'active' : '' ?>">
-            <a href="/pages/devices_groups.php"><i class="fas fa-layer-group"></i> Группы приборов</a>
-        </li>
-
         <li class="nav-item dropdown <?= ($current_page == 'logs.php' || $current_page == 'service.php') ? 'has-active' : '' ?>">
             <div class="dropdown">
                 <a href="#" class="dropdown-toggle dropdown-right" tabindex="0">
