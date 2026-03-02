@@ -180,7 +180,9 @@ $user_period = $user->getUserPeriod($_SESSION['username']);
                         <option value="">Выберите месяц...</option>
                         <?php 
                         $current_month_key = '';
-                        if (isset($_GET['date'])) {
+                        if (isset($current_date)) {
+                            $current_month_key = date('Y-m', strtotime($current_date));
+                        } elseif (isset($_GET['date'])) {
                             $current_month_key = date('Y-m', strtotime($_GET['date']));
                         }
                         ?>

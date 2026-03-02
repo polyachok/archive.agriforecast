@@ -60,11 +60,11 @@ $defaultTabSettings = $device->getParams('default_meteo_tab_settings');
 // Если настройки не найдены или некорректны, используем значения по умолчанию
 if (!$defaultTabSettings || !is_array($defaultTabSettings) || !isset($defaultTabSettings['default_tab'])) {
     // Логика выбора вкладки по умолчанию в случае отсутствия настройки в БД
-    // Приоритет: forecast-data -> meteo -> forecast
-    if ($show_forecast_data) {
-        $default_tab = 'forecast-data';
-    } elseif ($show_meteo_tab) {
+    // Приоритет: meteo -> forecast-data -> forecast
+    if ($show_meteo_tab) {
         $default_tab = 'meteo';
+    } elseif ($show_forecast_data) {
+        $default_tab = 'forecast-data';
     } elseif ($show_forecast_tab) {
         $default_tab = 'forecast';
     } else {
@@ -80,10 +80,10 @@ if (($default_tab === 'forecast-data' && !$show_forecast_data) ||
     ($default_tab === 'meteo' && !$show_meteo_tab) ||
     ($default_tab === 'forecast' && !$show_forecast_tab)) {
 
-    if ($show_forecast_data) {
-        $default_tab = 'forecast-data';
-    } elseif ($show_meteo_tab) {
+    if ($show_meteo_tab) {
         $default_tab = 'meteo';
+    } elseif ($show_forecast_data) {
+        $default_tab = 'forecast-data';
     } elseif ($show_forecast_tab) {
         $default_tab = 'forecast';
     } else {
@@ -861,7 +861,7 @@ include ROOT_PATH . '/includes/header.php';
                 <div class="form-group mb-4">
                     <label class="form-switch">
                         <input type="checkbox" id="meteoChartToggle">
-                        <i class="form-icon"></i> Показать общий просмотр
+                        <i class="form-icon"></i> З0 дней
                     </label>
                 </div>
                 <div class="card mb-4 overview-card" style="display: none;">

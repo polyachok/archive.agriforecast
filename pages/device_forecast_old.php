@@ -788,7 +788,7 @@ include ROOT_PATH . '/includes/header.php';
                             <label class="form-switch">
                                 <input type="checkbox" id="soilChartToggle"
                                     <?= $show_soil_tab && !empty($soil_data) ? '' : 'checked' ?>>
-                                <i class="form-icon"></i> Показать общий просмотр
+                                <i class="form-icon"></i> 30 дней
                             </label>
                         </div>
                     </div>

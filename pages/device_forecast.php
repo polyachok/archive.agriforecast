@@ -753,7 +753,7 @@ include ROOT_PATH . '/includes/header.php';
                             <label class="form-switch">
                                 <input type="checkbox" id="soilChartToggle"
                                     <?= $show_soil_tab && !empty($soil_data) ? '' : 'checked' ?>>
-                                <i class="form-icon"></i> Показать общий просмотр
+                                <i class="form-icon"></i> З0 дней
                             </label>
                         </div>
                     </div>
@@ -792,7 +792,7 @@ include ROOT_PATH . '/includes/header.php';
                     <div class="depth-controls mb-4">
                         <label class="form-switch">
                             <input type="checkbox" id="moistureChartToggle">
-                            <i class="form-icon"></i> Показать общий просмотр
+                            <i class="form-icon"></i> 30 дней
                         </label>
 
                         <?php if ($_SESSION['role'] == ROLE_ADMIN): ?>
@@ -1184,8 +1184,7 @@ include ROOT_PATH . '/includes/header.php';
                         const moistureContainerForTab = document.querySelector(
                             '#moisture-tab .detailed-card .card-body');
                         if (moistureContainerForTab) {
-                            moistureContainerForTab.scrollLeft = moistureContainerForTab
-                                .scrollWidth;
+                            moistureContainerForTab.scrollLeft = 0;
                         }
                     }, 300);
                 }
@@ -1471,7 +1470,7 @@ include ROOT_PATH . '/includes/header.php';
 
             function getChartOptions(isDetailed, activeParams) {
                 const now = new Date('<?=$current_date?>');
-                const overviewEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+                const overviewEnd = new Date(new Date(now).setDate(now.getDate() + 30));
                 const detailedEnd = new Date('<?=$current_date?>');
                 detailedEnd.setDate(now.getDate() + 7);
                 const depthParams = activeParams.filter(p => normalizedSoilData[p] && !normalizedSoilData[p]
@@ -1728,7 +1727,7 @@ include ROOT_PATH . '/includes/header.php';
 
                 if (document.querySelector('#soil-tab .detailed-card').style.display !== 'none') {
                     const container = document.querySelector('#soil-tab .detailed-card .card-body');
-                    container.scrollLeft = container.scrollWidth;
+                    container.scrollLeft = 0;
                 }
             }
 
@@ -1770,7 +1769,7 @@ include ROOT_PATH . '/includes/header.php';
 
                 if (showDetailed) {
                     const container = document.querySelector('#soil-tab .detailed-card .card-body');
-                    container.scrollLeft = container.scrollWidth;
+                    container.scrollLeft = 0;
                     updateCharts();
                 } else {
                     const container = document.querySelector('#soil-tab .overview-card .card-body');
@@ -1798,7 +1797,7 @@ include ROOT_PATH . '/includes/header.php';
 
             function getMoistureChartOptions(isDetailed, yellow, green, blue) {
                 const now = new Date('<?=$current_date?>');
-                const overviewEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+                const overviewEnd = new Date(new Date(now).setDate(now.getDate() + 30));
                 const detailedEnd = new Date('<?=$current_date?>');
                 detailedEnd.setDate(now.getDate() + 7);
 
@@ -2089,17 +2088,20 @@ include ROOT_PATH . '/includes/header.php';
                     };
                 }
 
-                const now = new Date();
+                const now = new Date('<?=$current_date?>');
                 const isDetailed = chart === moistureDetailedChart;
-                const startDate = isDetailed ?
-                    new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000) :
-                    new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+                
+                const overviewEnd = new Date(new Date(now).setDate(now.getDate() + 30));
+                const detailedEnd = new Date(new Date(now).setDate(now.getDate() + 7));
+
+                const xMin = now;
+                const xMax = isDetailed ? detailedEnd : overviewEnd;
 
                 chart.options.plugins.annotation.annotations = {
                     zone1: {
                         type: 'box',
-                        xMin: startDate,
-                        xMax: now,
+                        xMin: xMin,
+                        xMax: xMax,
                         yMin: 0,
                         yMax: yellow,
                         backgroundColor: 'rgba(255, 99, 132, 0.2)',
@@ -2107,8 +2109,8 @@ include ROOT_PATH . '/includes/header.php';
                     },
                     zone2: {
                         type: 'box',
-                        xMin: startDate,
-                        xMax: now,
+                        xMin: xMin,
+                        xMax: xMax,
                         yMin: yellow,
                         yMax: green,
                         backgroundColor: 'rgba(255, 206, 86, 0.2)',
@@ -2116,8 +2118,8 @@ include ROOT_PATH . '/includes/header.php';
                     },
                     zone3: {
                         type: 'box',
-                        xMin: startDate,
-                        xMax: now,
+                        xMin: xMin,
+                        xMax: xMax,
                         yMin: green,
                         yMax: blue,
                         backgroundColor: 'rgba(75, 192, 192, 0.2)',
@@ -2125,8 +2127,8 @@ include ROOT_PATH . '/includes/header.php';
                     },
                     zone4: {
                         type: 'box',
-                        xMin: startDate,
-                        xMax: now,
+                        xMin: xMin,
+                        xMax: xMax,
                         yMin: blue,
                         yMax: finalMaxY,
                         backgroundColor: 'rgba(54, 162, 235, 0.2)',
@@ -2165,7 +2167,7 @@ include ROOT_PATH . '/includes/header.php';
 
                 if (document.querySelector('#moisture-tab .detailed-card').style.display !== 'none') {
                     const container = document.querySelector('#moisture-tab .detailed-card .card-body');
-                    container.scrollLeft = container.scrollWidth;
+                    container.scrollLeft = 0;
                 }
             }
 
@@ -2443,7 +2445,7 @@ include ROOT_PATH . '/includes/header.php';
                 if (!showOverview) {
                     setTimeout(() => {
                         const container = document.querySelector('#moisture-tab .detailed-card .card-body');
-                        container.scrollLeft = container.scrollWidth;
+                        container.scrollLeft = 0;
                     }, 50);
                 } else {
 
@@ -2458,7 +2460,7 @@ include ROOT_PATH . '/includes/header.php';
             });
 
             const moistureContainer = document.querySelector('#moisture-tab .detailed-card .card-body');
-            moistureContainer.scrollLeft = moistureContainer.scrollWidth;
+            moistureContainer.scrollLeft = 0;
 
             let isMouseOverMoistureChart = false;
             moistureContainer.addEventListener('mouseenter', () => isMouseOverMoistureChart = true);
