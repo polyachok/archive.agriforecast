@@ -14,22 +14,20 @@ $user = new User();
 
 $device = new Device();
 
-$user_period = $device->getMeteoDevicePeriod($_GET['device_id']);
+$user_period = $device->getMeteoDevicePeriod($current_year, $_GET['device_id']);
+$months_for_header = getMonthsBetweenRu($user_period['start'], $user_period['finish']);
 sscanf($user_period['start'], '%d-%d-%d', $yStart, $mStart, $dStart);
 sscanf($user_period['finish'], '%d-%d-%d', $yFinish, $mFinish, $dFinish);
 $current_date = $user_period['start'];
 
-if(isset($_GET['date']) && !empty($_GET['date'])){
-    if($current_date < $_GET['date']){
-        $current_date = DateTime::createFromFormat('Y-m-d', $_GET['date'])->format('Y-m-d');
-    }    
-    sscanf($_GET['date'], '%d-%d-%d', $yCurrent, $mCurrent, $dCurrent);
-}else{
-    $dCurrent = $dStart;
-    $mCurrent = $mStart;
-    $yCurrent = $yStart;
+if (isset($_GET['date']) && !empty($_GET['date'])) {
+    $d = DateTime::createFromFormat('Y-m-d', $_GET['date']);
+    if ($d && $d->format('Y-m-d') === $_GET['date']) {
+        $current_date = $_GET['date'];
+    }
 }
 
+//sscanf($current_date, '%d-%d-%d', $yCurrent, $mCurrent, $dCurrent);
 
 
 
@@ -40,6 +38,7 @@ if (!isset($_GET['device_id'])) {
 }
 
 $device_id = (int)$_GET['device_id'];
+$device_years = $device->getArchiveYear($device_id);
 $device_info = $device->getDevice($device_id);
 $coordinates = explode(',', $device_info['coordinates']);
 $latitude = trim($coordinates[0]);  
@@ -164,6 +163,7 @@ if ($show_meteo_tab) {
     $timezone_offset = getClientTimezone() * 3600; 
     
     $raw_meteo_data = $device->getMeteoData($device_id, $current_date);
+    //print_r($raw_meteo_data);
     if (!empty($raw_meteo_data)) {
         foreach ($raw_meteo_data as &$record) {
             $record['ref_time'] = date('Y-m-d H:i:s', strtotime($record['ref_time']) + $timezone_offset);
@@ -307,7 +307,7 @@ if ($show_forecast_tab) {
     ?->setTime(0, 0, 0)
     ?->format('Y-m-d H:i:s');
     $current_date = DateTime::createFromFormat('Y-m-d', $current_date)->setTime(0,0,0)->format('Y-m-d');
-    $forecast_values = $device->getForecastValuesFromDate($device_id, $current_date, $yesterday);
+    $forecast_values = $device->getForecastValuesFromDate($device_id, $current_date);
     if(empty($forecast_values)){
         $device_forecast_period = $device->getForecastValuesPeriod($device_id);            
     }
@@ -816,51 +816,20 @@ include ROOT_PATH . '/includes/header.php';
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@2.0.1"></script>
-<script src="https://api-maps.yandex.ru/v3/?apikey=de391e7f-f29b-4166-abd5-63717adafe6e&lang=ru_RU" type="text/javascript"></script>
-<script>
-    const startDate = new Date(<?=$yStart?>, <?=$mStart - 1?>, <?=$dStart?>);   //месяцы с 0 начинаются
-    const endDate = new Date(<?=$yFinish?>, <?=$mFinish - 1?>, <?=$dFinish?>);  
-    const defaultDate = new Date(<?=$yCurrent?>, <?=$mCurrent - 1?>, <?=$dCurrent?>);  
-        new Pikaday({
-            field: document.getElementById('datepicker'),
-            minDate: startDate,
-            maxDate: endDate,
-            format: 'DD.MM.YYYY', 
-            defaultDate: defaultDate,
-            setDefaultDate: true,
-            firstDay: 1,
-            yearRange: [2020, 2030],
-            onSelect: function(selectedDate) {
-                if (selectedDate) {
-                    const formatted = moment(selectedDate).format('YYYY-MM-DD');
-                    const url = new URL(window.location);
-                    url.searchParams.set('date', formatted);
-                    window.location.href = url.href;
-                } 
-            },
-            i18n: {
-            months: ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
-                    'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'],
-            weekdays: ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'],
-            weekdaysShort: ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб']
-            }
-        });
-</script>
+
+
 <div class="columns">
     <div class="column col-3 hide-xs">
         <?php include ROOT_PATH . '/includes/sidebar.php'; ?>
     </div>
     <div class="column col-9 col-xs-12">
         <h3 style="margin-bottom: 0;">Данные устройства <?= htmlspecialchars($device_info['name']) ?></h3>
-        <button class="btn btn-link" onclick="window.location.href = '/pages/dashboard.php?date=<?=$current_date;?>'">
+        <button class="btn btn-link" onclick="window.location.href = '/pages/dashboard.php'">
             <i class="fas fa-arrow-left"></i> Назад к приборам
         </button>
 
         <div class="tab-container">
             <div class="tab-controls">
-                <?php if ($show_forecast_data): ?>
-                <button class="tab-btn <?php echo ($default_tab === 'forecast-data') ? 'active' : ''; ?>" data-tab="forecast-data">Прогноз</button>
-                <?php endif; ?>
                 <?php if ($show_meteo_tab): ?>
                 <button class="tab-btn <?php echo ($default_tab === 'meteo') ? 'active' : ''; ?>" data-tab="meteo">Метеоданные</button>
                 <?php endif; ?>
@@ -869,190 +838,6 @@ include ROOT_PATH . '/includes/header.php';
                 <?php endif; ?>
             </div>
             
-            <?php if ($show_forecast_data): ?>
-                <div class="tab-content <?php echo ($default_tab === 'forecast-data') ? 'active' : ''; ?>" id="forecast-data-tab">
-               
-                <?php if (empty($forecast_values)): ?>
-                <div class="alert alert-info">
-                    Данные прогноза отсутствуют для этого устройства.</br>
-                    Для этого устройства доступны данные прогноза с <strong><?=$device_forecast_period['device_period'];?></strong>! 
-                </div>
-                <?php else: ?>               
-                <!-- Виджеты прогноза-->
-                <div class="card mb-4 overview-card">
-                    <div class="card-header">
-                        <h4></h4>
-                    </div>
-                    <div class="card-body">
-                        <div id="map" style="height: 200px"></div>
-                        <?php                        
-                        $last_meteo_data = $device->getLastMeteoData($device_info['id'], $current_date);
-                        $forecastValueNow = $device->getForecastValuesNow($device_info['id'], $current_date);
-                        $forecastValueAllDay = $device->getForecastValuesAllDay($device_info['id'], $current_date);
-                        $forecastValueWeekFromTime = $device->getForecastValuesWeekFromTime($device_info['id'], $current_date);
-                       // echo '<pre>';
-                       // print_r($forecastValueWeekFromTime);
-                       // echo '</pre>';
-                        if(!empty($forecastValueNow['parameters'])){
-                            if(!empty($forecastValueNow['parameters']['2t'])){
-                                $current_temp = round($forecastValueNow['parameters']['2t']);
-                            }else{
-                                $current_temp = '-';
-                            }
-                            if($forecastValueNow['parameters']['crain'] > 0){
-                                $humidity = $device->getRainIcon($forecastValueNow['parameters']['crain']);
-                            }else{
-                                $humidity = $device->getCloudIcon($forecastValueNow['parameters']['tcc']);
-                            }  
-                        }    
-                        ?>
-                        <!-- Прогноз сутки -->
-                        <div class="weather-widget">
-                            <!-- Левый блок - текущая температура -->
-                            <div class="temperature-block">
-                                <span class="current-temp"><?php echo htmlspecialchars($current_temp);?></span>
-                                <?php echo $current_temp != '' ? '<span class="current-temp-unit">°C</span>' : '-'; ?> 
-                            </div>
-                            <!-- Средний блок - иконка погоды -->
-                            <div class="weather-icon-block">
-                                <div class="weather-icon"><?php echo $humidity;?></div>
-                            </div>
-                            <!-- Правый блок - прогноз по часам на сутки -->
-                            <div class="forecast-block">
-                                <div class="forecast-container">
-                                    <button class="scroll-arrow scroll-arrow-left" id="scrollLeft">◀</button>
-                                    <div class="hourly-forecast-wrapper">
-                                        <div class="hourly-forecast" id="hourlyForecast">
-                                            <?php foreach($forecastValueAllDay as $hour): ?>
-                                            <div class="hour-forecast">
-                                                <div class="hour-time"><?php echo $hour['ref_time']?></div>
-                                                <div class="hour-temp-block">
-                                                    <span class="hour-temp"><?php echo round($hour['parameters']['2t'])?></span><span class="hour-temp-unit">°C</span>
-                                                </div>
-                                                <div class="hour-icon">
-                                                    <?php
-                                                        $params = $hour['parameters'] ?? [];
-                                                        echo ($params['crain'] ?? 0) > 0 
-                                                            ? $device->getRainIcon($params['crain']) 
-                                                            : $device->getCloudIcon($params['tcc'] ?? null);
-                                                    ?>
-                                                </div>
-                                            </div>  
-                                            <?php endforeach; ?>                                      
-                                        </div>
-                                    </div>
-                                    <button class="scroll-arrow scroll-arrow-right" id="scrollRight">▶</button>
-                                </div>
-                            </div>
-                        </div>
-                        <!-- Прогноз 10 дней общий-->
-                        <div class="weather-container">
-                            <div class="forecast-header">
-                                Прогноз на 10 дней
-                            </div>
-                            
-                            <div class="forecast-content">
-                                <div class="days-container">
-                                    <?php 
-                                        $forecastTenDayNight = $device->getForecastValuesWeekFromDayNight($device_info['id'], $current_date);
-                                        foreach($forecastTenDayNight as $day):
-                                            $paramDay = $day['day']['parameters'];
-                                            $paramNight = $day['night']['parameters'];
-                                            $date = formatDateFromShortRusDate($day['date']);
-                                            $dateId = new DateTime($day['date']);
-                                            $dateId = $dateId->format('m.d');
-                                    ?>                                    
-                                        <div class="day-card" data-target="<?php echo $dateId;?>">
-                                            <div class="day-name"><?php echo $date['name'];?></div>
-                                            <div class="day-date"><?php echo $date['number'];?></div>
-                                            <div class="weather-icon-day">
-                                        <?php
-                                            if($paramDay['crain'] > 0){
-                                                echo $device->getRainIcon($paramDay['crain']);
-                                            }else{
-                                                echo $device->getCloudIcon($paramDay['tcc']);                                               
-                                            }   
-                                        ?>                           
-                                            </div>
-                                            <!-- <div class="temperature">22°</div>-->
-                                        </div>
-                                        
-                                    <?php endforeach;?>
-                                </div>
-                                <div style="height: 150px;">
-                                 <canvas id="chart-container"></canvas>
-                                </div>
-                               
-                            </div>
-                        </div>
-                        <!-- Прогноз 10 дней по дню-->
-                        <?php forEach($forecastValueWeekFromTime as $day): 
-                           $date = formatDateFromRusDate($day['date']);
-                           $dateId = new DateTime($day['date']);
-                           $dateId = $dateId->format('m.d');
-                        ?>   
-                            <div class="weather-widget-day" id='<?php echo $dateId; ?>'>
-                                <!-- Левый блок — СТАТИЧНЫЙ -->
-                                <div class="weather-block left-block">
-                                    <div class="block-title-left"><?php echo $date; ?></div>
-                                    <div class="weather-rows">
-                                        <?php foreach ($day['items'] as $paramKey => $paramData):
-                                            if ($paramKey !== '2t') continue; // Работаем только с температурой для левого блока
-                                            foreach ($paramData['times'] as $targetTime => $timeData):
-                                                $crainValue = $day['items']['crain']['times'][$targetTime]['value'] ?? 0;
-                                                $tccValue = $day['items']['tcc']['times'][$targetTime]['value'] ?? null;
-                                        ?>
-                                            <div class="weather-row">
-                                                <div class="time-period"><?php echo $targetTime; ?></div>
-                                                <div class="day-temp-block">
-                                                    <span class="temperature">
-                                                        <?php echo $timeData['value'] !== null ? round($timeData['value']) : '—'; ?>
-                                                    </span>
-                                                    <span class="day-temp-unit">°C</span>
-                                                </div>
-                                                <div class="weather-icon-left">
-                                                    <?php
-                                                        echo $crainValue > 0
-                                                            ? $device->getRainIcon($crainValue)
-                                                            : $device->getCloudIcon($tccValue);
-                                                    ?>
-                                                </div>
-                                            </div>
-                                        <?php endforeach; ?>
-                                        <?php break; // достаточно одного прохода, т.к. только '2t' нужен ?>
-                                        <?php endforeach; ?>
-                                    </div>
-                                </div>
-
-                               <!-- Правые блоки — УНИВЕРСАЛЬНЫЕ -->
-                                <?php foreach ($day['items'] as $paramKey => $paramData):
-                                    // Пропускаем параметры, которые уже отображены в левом блоке
-                                    if (in_array($paramKey, ['2t', 'crain', 'tcc'])) continue;
-                                ?>
-                                <div class="weather-block">
-                                    <div class="block-title"><?= htmlspecialchars($paramData['name']) ?></div>
-                                    <div class="right-block-content">
-                                        <?php foreach ($paramData['times'] as $timeKey => $timeData): ?>
-                                            <div class="data-item">
-                                                <?php if ($paramData['type'] === 'wind'): ?>
-                                                    <?= htmlspecialchars($timeData['speed']) ?> <?= getWind($timeData['direction']) ?> 
-                                                <?php else: ?>
-                                                    <?= htmlspecialchars($timeData['display']) ?>
-                                                <?php endif; ?>
-                                            </div>
-                                        <?php endforeach; ?>
-                                    </div>
-                                </div>
-                        <?php endforeach; ?>
-                    </div>         
-               <?php endforeach;?>
-                        <!----->
-                    </div>
-                </div>
-                <?php endif; ?>
-            </div>
-            <?php endif; ?>
-
             <?php if ($show_meteo_tab): ?>
                 <div class="tab-content <?php echo ($default_tab === 'meteo') ? 'active' : ''; ?>" id="meteo-tab">
                 <?php if (empty($meteo_data)): ?>
@@ -1787,66 +1572,6 @@ include ROOT_PATH . '/includes/header.php';
 
         <?php endif; ?>
         </script>
-    <script>
-        let mapContainer = document.getElementById('map');
-        if(mapContainer){
-        initMap();
-
-            async function initMap() {
-                if (typeof ymaps3 === 'undefined') {
-                console.warn('Yandex Maps API не загружен');
-                return;
-            }
-                await ymaps3.ready;
-
-                const {YMap, YMapDefaultSchemeLayer, YMapMarker, YMapDefaultFeaturesLayer} = ymaps3;
-
-                // Инициализируем карту
-                const map = new YMap(
-                    // Передаём ссылку на HTMLElement контейнера
-                    document.getElementById('map'),
-
-                    // Передаём параметры инициализации карты
-                    {
-                        location: {
-                            // Координаты центра карты
-                        // center: [55.835966, 37.555171],
-                            center: [<?=$longitude;?>, <?=$latitude;?>],
-
-                            // Уровень масштабирования
-                            zoom: 15
-                        }
-                    }
-                );            
-
-                // Добавляем слой для отображения схематической карты
-                map.addChild(new YMapDefaultSchemeLayer());
-
-                // Добавляем слой для объектов (маркеры, линии и т.д.)
-                map.addChild(new YMapDefaultFeaturesLayer());
-
-                // Создаем элемент маркера
-                const markerElement = document.createElement('div');
-                markerElement.style.width = '30px';
-                markerElement.style.height = '30px';
-                markerElement.style.background = 'red';
-                markerElement.style.borderRadius = '50%';
-                markerElement.style.border = '2px solid white';
-                markerElement.style.boxShadow = '0 0 10px rgba(0,0,0,0.5)';
-
-                // Создаем маркер
-                const marker = new YMapMarker(
-                    {
-                        coordinates: [<?=$longitude;?>, <?=$latitude;?>], 
-                    },
-                    markerElement
-                );
-
-                // Добавляем маркер на карту
-                map.addChild(marker);
-            }
-        }
-    </script>
     <style>
         .tab-controls {
             display: flex;

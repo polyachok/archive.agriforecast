@@ -163,16 +163,14 @@ class Device {
         return $stmt->fetch(PDO::FETCH_ASSOC);
     }
 
-    public function getForecastValuesFromDate($device_id, $current_date, $yesterday) {
-        $current_date =  DateTime::createFromFormat('Y-m-d', $current_date)->format('Y-m-d 23:00:00');
+    public function getForecastValuesFromDate($device_id, $current_date) {
         $stmt = $this->db->prepare("
             SELECT * FROM devices_forecast_values 
             WHERE device_id = ? 
-            AND ref_time >= ?
-            AND ref_time <= ? 
+            AND ref_time BETWEEN ? AND DATE_ADD(?, INTERVAL 30 DAY)
             ORDER BY ref_time ASC, predict_minutes ASC
         ");
-        $stmt->execute([$device_id, $yesterday, $current_date]);
+        $stmt->execute([$device_id, $current_date, $current_date]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
     
@@ -257,7 +255,23 @@ class Device {
         return $stmt->fetch(PDO::FETCH_ASSOC); 
     }
 
-    public function getMeteoDevicePeriod($device_id = null){
+    public function getMeteoDevicePeriod($year, $id){
+        $stmt = $this->db->prepare("SELECT `device_id` FROM `devices` WHERE id = ?");
+        $stmt->execute([$id]);
+        $device = $stmt->fetch(PDO::FETCH_ASSOC);
+        $sql = "SELECT 
+                    DATE_FORMAT(MIN(DateReal), '%Y-%m-%d') AS start,
+                    DATE_FORMAT(MAX(DateReal), '%Y-%m-%d') AS finish
+                FROM forecast.MeteoSense
+                WHERE YEAR(DateReal) = ? 
+                AND station_id = ?";
+
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute([$year, $device['device_id']]);
+        return $stmt->fetch(PDO::FETCH_ASSOC); 
+
+
+
         $sql = "SELECT MIN(DateReal) as start, MAX(DateReal) as finish FROM forecast.MeteoSense";
         $params = [];
         if($device_id != null){
@@ -337,7 +351,7 @@ class Device {
 
         try {
             $meteo_db = $this->getSoilDB();
-            $endDate = DateTime::createFromFormat('Y-d-m', $date)->sub(new DateInterval('P30D'))->format('Y-m-d H:i:s');
+            //$endDate = DateTime::createFromFormat('Y-d-m', $date)->sub(new DateInterval('P30D'))->format('Y-m-d H:i:s');
 
             $query = "SELECT 
                         record_time AS ref_time,
@@ -354,12 +368,11 @@ class Device {
                         unknown12_d AS solar_radiation
                     FROM MeteoSense
                     WHERE station_id = ?
-                    AND record_time >= ?
-                    AND record_time <= ?
+                    AND record_time BETWEEN ? AND DATE_ADD(?, INTERVAL 30 DAY)                    
                     ORDER BY record_time";
 
             $stmt = $meteo_db->prepare($query);
-            $stmt->execute([$uid, $date, $endDate]);
+            $stmt->execute([$uid, $date, $date]);
             
             return $stmt->fetchAll(PDO::FETCH_ASSOC);
             
@@ -661,7 +674,7 @@ class Device {
             $result['parameters'][$item['parameter']] = $item['value'];
         }
        
-        return $result;
+        return $utcDateTimeStr;
     }
 
     function getUTCHoursOffset($lat, $lng) {
@@ -1183,7 +1196,7 @@ class Device {
     }
     
     public function getArchiveYear($internal_id) {
-        $stmt = $this->db->prepare("SELECT `device_id` FROM `devices` WHERE id = ?");
+        $stmt = $this->db->prepare("SELECT `device_id`, `device_type` FROM `devices` WHERE id = ?");
         $stmt->execute([$internal_id]);
         $device = $stmt->fetch(PDO::FETCH_ASSOC);
         
@@ -1196,8 +1209,13 @@ class Device {
 
         try {
             $soil_db = $this->getSoilDB();
+            if( $device['device_type'] == 'VP'){
+                $query = "SELECT DISTINCT YEAR(Date) as year FROM `soilsense` WHERE UID = ? ORDER BY year";                    
+            }else{
+                $query = "SELECT DISTINCT year FROM `meteosense` WHERE station_id = ? ORDER BY year";                    
 
-            $query = "SELECT DISTINCT YEAR(Date) as year FROM `soilsense` WHERE UID = ? ORDER BY year";                    
+            }
+            
             $stmt = $soil_db->prepare($query);
             $stmt->execute([$uid]);
             
