@@ -36,14 +36,27 @@ if (!in_array($limit, $allowedLimits)) {
 try {
     $deviceLogs = new DeviceLogs();
     
-    $logs = $deviceLogs->getLogs($filters, $limit, $offset);
-    $totalLogs = $deviceLogs->getLogsCount($filters);
-    $totalPages = ceil($totalLogs / $limit);
-    
-    $deviceTypes = $deviceLogs->getUniqueDeviceTypes();
-    $deviceUIDs = $deviceLogs->getUniqueDeviceUIDs();
-    $logTypes = $deviceLogs->getLogTypes();
+    // Always get years for the primary dropdown and static types
     $logYears = $deviceLogs->getLogYears();
+    $logTypes = $deviceLogs->getLogTypes();
+    
+    // Check if a year has been selected and submitted
+    if (!empty($filters['year'])) {
+        $logs = $deviceLogs->getLogs($filters, $limit, $offset);
+        $totalLogs = $deviceLogs->getLogsCount($filters);
+        $totalPages = ceil($totalLogs / $limit);
+        
+        // These are needed to populate the other filters, which are now enabled
+        $deviceTypes = $deviceLogs->getUniqueDeviceTypes();
+        $deviceUIDs = $deviceLogs->getUniqueDeviceUIDs();
+    } else {
+        // No year selected, don't load main data.
+        $logs = [];
+        $totalLogs = 0;
+        $totalPages = 0;
+        $deviceTypes = []; // Dropdown is disabled, so it can be empty
+        $deviceUIDs = []; // Input is disabled
+    }
     
 } catch (Exception $e) {
     $error = "Ошибка при работе с базой данных: " . $e->getMessage();
@@ -362,7 +375,7 @@ function safeHtml($value) {
                             <div class="form-group">
                                 <label class="form-label" for="year">Год</label>
                                 <select class="form-select" id="year" name="year">
-                                    <option value="">Все годы</option>
+                                    <option value="">Выберите год</option>
                                     <?php foreach ($logYears as $year): ?>
                                         <option value="<?= safeHtml($year) ?>" 
                                                 <?= ($filters['year'] ?? '') === (string)$year ? 'selected' : '' ?>>
@@ -454,7 +467,13 @@ function safeHtml($value) {
                             </tr>
                         </thead>
                         <tbody>
-                            <?php if (empty($logs)): ?>
+                            <?php if (empty($filters['year'])): ?>
+                                <tr class="empty-row">
+                                    <td colspan="5">
+                                        <i class="fas fa-arrow-up"></i> Выберите год в фильтре, чтобы загрузить события.
+                                    </td>
+                                </tr>
+                            <?php elseif (empty($logs)): ?>
                                 <tr class="empty-row">
                                     <td colspan="5">
                                         <i class="fas fa-info-circle"></i> Логи не найдены
