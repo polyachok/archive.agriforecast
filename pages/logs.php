@@ -1,5 +1,5 @@
 <?php
-define('ROOT_PATH', '/var/www/html');
+define('ROOT_PATH', dirname(__DIR__));
 require_once ROOT_PATH . '/classes/User.php';
 require_once ROOT_PATH . '/includes/header.php';
 require_once ROOT_PATH . '/classes/DeviceLogs.php';
@@ -11,6 +11,7 @@ if ($_SESSION['role'] !== ROLE_ADMIN) {
 $deviceLogs = new DeviceLogs();
 
 $filters = [
+    'year' => $_GET['year'] ?? '',
     'device_type' => $_GET['device_type'] ?? '',
     'log_type' => $_GET['log_type'] ?? '',
     'device_uid' => $_GET['device_uid'] ?? '',
@@ -42,6 +43,7 @@ try {
     $deviceTypes = $deviceLogs->getUniqueDeviceTypes();
     $deviceUIDs = $deviceLogs->getUniqueDeviceUIDs();
     $logTypes = $deviceLogs->getLogTypes();
+    $logYears = $deviceLogs->getLogYears();
     
 } catch (Exception $e) {
     $error = "Ошибка при работе с базой данных: " . $e->getMessage();
@@ -51,6 +53,7 @@ try {
     $deviceTypes = [];
     $deviceUIDs = [];
     $logTypes = ['CRITICAL', 'WARNING', 'INFO', 'DEBUG'];
+    $logYears = [];
 }
 
 function translateDeviceType($deviceType) {
@@ -355,7 +358,21 @@ function safeHtml($value) {
                     </div>
                     
                     <div class="columns">
-                        <div class="column col-4">
+                        <div class="column col-3">
+                            <div class="form-group">
+                                <label class="form-label" for="year">Год</label>
+                                <select class="form-select" id="year" name="year">
+                                    <option value="">Все годы</option>
+                                    <?php foreach ($logYears as $year): ?>
+                                        <option value="<?= safeHtml($year) ?>" 
+                                                <?= ($filters['year'] ?? '') === (string)$year ? 'selected' : '' ?>>
+                                            <?= safeHtml($year) ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="column col-3">
                             <div class="form-group">
                                 <label class="form-label" for="datetime_from">Дата и время с</label>
                                 <input type="datetime-local" class="form-input" id="datetime_from" name="datetime_from" 
@@ -363,7 +380,7 @@ function safeHtml($value) {
                             </div>
                         </div>
                         
-                        <div class="column col-4">
+                        <div class="column col-3">
                             <div class="form-group">
                                 <label class="form-label" for="datetime_to">Дата и время по</label>
                                 <input type="datetime-local" class="form-input" id="datetime_to" name="datetime_to" 
@@ -371,7 +388,7 @@ function safeHtml($value) {
                             </div>
                         </div>
                         
-                        <div class="column col-4">
+                        <div class="column col-3">
                             <div class="form-group">
                                 <label class="form-label">&nbsp;</label>
                                 <div class="filter-controls">
@@ -383,15 +400,21 @@ function safeHtml($value) {
                                         <option value="last_24_hours">Последние 24 часа</option>
                                         <option value="last_week">Последняя неделя</option>
                                     </select>
-                                    
-                                    <div class="filter-buttons">
-                                        <button type="submit" class="btn btn-primary btn-sm">
-                                            <i class="fas fa-search"></i> Фильтр
-                                        </button>
-                                        <a href="/pages/logs.php" class="btn btn-link btn-sm">
-                                            <i class="fas fa-times"></i> Сброс
-                                        </a>
-                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="columns">
+                        <div class="column col-12">
+                             <div class="form-group">
+                                <div class="filter-buttons" style="justify-content: flex-end; width: 100%; margin-top: 10px;">
+                                    <button type="submit" class="btn btn-primary btn-sm">
+                                        <i class="fas fa-search"></i> Фильтр
+                                    </button>
+                                    <a href="/pages/logs.php" class="btn btn-link btn-sm">
+                                        <i class="fas fa-times"></i> Сброс
+                                    </a>
                                 </div>
                             </div>
                         </div>
@@ -539,6 +562,59 @@ $(document).ready(function() {
     setTimeout(function() {
         $('.toast').fadeOut();
     }, 5000);
+
+    // --- Year filter and form disabling logic ---
+    const yearSelect = $('#year');
+    // Select all form controls except the year selector itself and the reset link
+    const otherFilters = $('.compact-filters').find('input, select, button').not(yearSelect);
+
+    function toggleFiltersBasedOnYear() {
+        const yearSelected = yearSelect.val() !== '';
+        otherFilters.prop('disabled', !yearSelected);
+    }
+    
+    function setDateLimitsForYear() {
+        const selectedYear = yearSelect.val();
+        const fromInput = $('#datetime_from');
+        const toInput = $('#datetime_to');
+
+        if (selectedYear) {
+            fromInput.attr('min', `${selectedYear}-01-01T00:00`);
+            fromInput.attr('max', `${selectedYear}-12-31T23:59`);
+            toInput.attr('min', `${selectedYear}-01-01T00:00`);
+            toInput.attr('max', `${selectedYear}-12-31T23:59`);
+
+            const fromDate = new Date(fromInput.val());
+            if (fromInput.val() && fromDate.getFullYear() != selectedYear) {
+                fromInput.val('');
+            }
+            const toDate = new Date(toInput.val());
+            if (toInput.val() && toDate.getFullYear() != selectedYear) {
+                toInput.val('');
+            }
+        } else {
+            fromInput.removeAttr('min');
+            fromInput.removeAttr('max');
+            toInput.removeAttr('min');
+            toInput.removeAttr('max');
+        }
+    }
+
+    yearSelect.on('change', function() {
+        toggleFiltersBasedOnYear();
+        setDateLimitsForYear();
+        // Also clear the date fields when the year selection changes
+        if(yearSelect.val() !== '') {
+            $('#datetime_from').val('');
+            $('#datetime_to').val('');
+        }
+    });
+    
+    // Set initial state on page load
+    toggleFiltersBasedOnYear();
+    setDateLimitsForYear(); 
+    // --- End of Year filter logic ---
+
     $('#datetime_from, #datetime_to').on('change', function() {
         if ($(this).val()) {
             $('#date_from, #time_from, #date_to, #time_to').val('');
@@ -560,6 +636,7 @@ function applyQuickFilter() {
     let fromDate = new Date();
     
     $('#datetime_from, #datetime_to, #date_from, #time_from, #date_to, #time_to').val('');
+    $('#year').val(''); // Reset year filter
     
     switch(period) {
         case 'today':

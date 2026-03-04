@@ -47,6 +47,11 @@ class DeviceLogs {
             $params[] = '%' . $filters['message'] . '%';
         }
         
+        if (!empty($filters['year'])) {
+            $sql .= " AND YEAR(created_at) = ?";
+            $params[] = $filters['year'];
+        }
+        
         if (!empty($filters['datetime_from'])) {
             $sql .= " AND created_at >= ?";
             $params[] = $filters['datetime_from'];
@@ -97,6 +102,11 @@ class DeviceLogs {
             $params[] = '%' . $filters['message'] . '%';
         }
         
+        if (!empty($filters['year'])) {
+            $sql .= " AND YEAR(created_at) = ?";
+            $params[] = $filters['year'];
+        }
+        
         if (!empty($filters['datetime_from'])) {
             $sql .= " AND created_at >= ?";
             $params[] = $filters['datetime_from'];
@@ -137,5 +147,12 @@ class DeviceLogs {
     
     public function getLogTypes() {
         return ['CRITICAL', 'WARNING', 'INFO', 'DEBUG'];
+    }
+
+    public function getLogYears() {
+        $sql = "SELECT DISTINCT YEAR(created_at) as log_year FROM device_logs WHERE created_at IS NOT NULL ORDER BY log_year DESC";
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute();
+        return $stmt->fetchAll(PDO::FETCH_COLUMN);
     }
 }
