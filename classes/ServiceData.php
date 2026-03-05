@@ -50,6 +50,44 @@ class ServiceData {
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
     
+    public function getAvailableYears() {
+        $sql = "
+            (SELECT DISTINCT YEAR(Date) as year FROM SoilSense WHERE Date IS NOT NULL)
+            UNION
+            (SELECT DISTINCT YEAR(record_time) as year FROM MeteoSense WHERE record_time IS NOT NULL)
+            ORDER BY year DESC
+        ";
+        $stmt = $this->forecastDb->prepare($sql);
+        $stmt->execute();
+        return $stmt->fetchAll(PDO::FETCH_COLUMN);
+    }
+
+    public function getSoilSenseDevicesForYear($year) {
+        $sql = "SELECT DISTINCT d.device_id, d.name
+                FROM portal_db.devices d
+                JOIN forecast.SoilSense s ON d.device_id = s.UID
+                WHERE d.device_type = 'VP'
+                  AND d.is_deleted = 0
+                  AND YEAR(s.Date) = :year
+                ORDER BY d.name";
+        $stmt = $this->forecastDb->prepare($sql);
+        $stmt->execute([':year' => $year]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    public function getMeteoSenseDevicesForYear($year) {
+        $sql = "SELECT DISTINCT d.device_id, d.name
+                FROM portal_db.devices d
+                JOIN forecast.MeteoSense m ON d.device_id = m.station_id
+                WHERE d.device_type = 'M'
+                  AND d.is_deleted = 0
+                  AND YEAR(m.record_time) = :year
+                ORDER BY d.name";
+        $stmt = $this->forecastDb->prepare($sql);
+        $stmt->execute([':year' => $year]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+    
     public function getSoilSenseData($deviceId, $startDate, $endDate) {
         $sql = "SELECT 
                     DATE_FORMAT(CONCAT(Date, ' ', Time), '%Y-%m-%d %H:00:00') as hour_slot,

@@ -1,5 +1,5 @@
 <?php
-define('ROOT_PATH', '/var/www/html');
+define('ROOT_PATH', dirname(__DIR__));
 require_once ROOT_PATH . '/classes/User.php';
 require_once ROOT_PATH . '/includes/header.php';
 require_once ROOT_PATH . '/classes/ServiceData.php';
@@ -10,23 +10,39 @@ if ($_SESSION['role'] !== ROLE_ADMIN) {
 
 $serviceData = new ServiceData();
 
-try {
-    $soilSenseDevices = $serviceData->getSoilSenseDevices();
-    $meteoSenseDevices = $serviceData->getMeteoSenseDevices();
-} catch (Exception $e) {
-    $error = "Ошибка при получении списка устройств: " . $e->getMessage();
-    $soilSenseDevices = [];
-    $meteoSenseDevices = [];
-}
-
+$year = $_GET['year'] ?? '';
 $deviceType = $_GET['device_type'] ?? '';
 $deviceId = $_GET['device_id'] ?? '';
-$startDate = $_GET['start_date'] ?? date('Y-m-d', strtotime(date('Y') . '-05-01'));
-$endDate = $_GET['end_date'] ?? date('Y-m-d');
+$startDate = $_GET['start_date'] ?? '';
+$endDate = $_GET['end_date'] ?? '';
+
+try {
+    $availableYears = $serviceData->getAvailableYears();
+} catch (Exception $e) {
+    $error = "Ошибка при получении списка лет: " . $e->getMessage();
+    $availableYears = [];
+}
+
+$soilSenseDevices = [];
+$meteoSenseDevices = [];
+if ($year && $deviceType) {
+    try {
+        if ($deviceType === 'soil') {
+            $soilSenseDevices = $serviceData->getSoilSenseDevicesForYear($year);
+        } elseif ($deviceType === 'meteo') {
+            $meteoSenseDevices = $serviceData->getMeteoSenseDevicesForYear($year);
+        }
+    } catch (Exception $e) {
+        if (empty($error)) { // Show only the first error
+            $error = "Ошибка при получении списка устройств: " . $e->getMessage();
+        }
+    }
+}
+
 
 // Убедимся, что startDateTime и endDateTime всегда содержат полное время
-$startDateTime = $startDate . ' 00:00:00';
-$endDateTime = $endDate . ' 23:59:59';
+$startDateTime = $startDate ? $startDate . ' 00:00:00' : '';
+$endDateTime = $endDate ? $endDate . ' 23:59:59' : '';
 
 $chartData = [];
 $chartLabels = [];
@@ -73,7 +89,6 @@ if ($deviceType && $deviceId && $startDate && $endDate) {
             
         } else if ($deviceType === 'meteo') {
             $data = $serviceData->getMeteoSenseData($deviceId, $startDateTime, $endDateTime);
-            // ИЗМЕНЕНИЕ: Передаем 'meteo' для получения часовых интервалов
             $intervals = $serviceData->getTimeIntervals($startDateTime, $endDateTime, 'meteo'); 
             $chartData = $serviceData->mergeIntervalsWithData($intervals, $data);
             
@@ -560,34 +575,42 @@ function getRussianMonth($monthNum) {
                     </div>
                 <?php endif; ?>
                 
-                <form method="GET" action="/pages/service.php">
+                <form method="GET" action="/pages/service.php" id="service-form">
                     <div class="form-row">
                         <div class="form-group">
+                            <label class="form-label" for="year">Год</label>
+                            <select class="form-select" id="year" name="year" onchange="this.form.submit()">
+                                <option value="">Выберите год</option>
+                                <?php foreach ($availableYears as $y): ?>
+                                    <option value="<?= $y ?>" <?= (string)$y === $year ? 'selected' : '' ?>><?= $y ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="form-group">
                             <label class="form-label" for="device_type">Тип устройства</label>
-                            <select class="form-select" id="device_type" name="device_type" required onchange="updateDeviceList(); resetDisplay();">
-                                <option value="" <?= $deviceType === '' ? 'selected' : '' ?>>Выберите тип</option>
+                            <select class="form-select" id="device_type" name="device_type" required onchange="this.form.submit()">
+                                <option value="">Выберите тип</option>
                                 <option value="soil" <?= $deviceType === 'soil' ? 'selected' : '' ?>>Влажность (SoilSense)</option>
                                 <option value="meteo" <?= $deviceType === 'meteo' ? 'selected' : '' ?>>Метеостанция (MeteoSense)</option>
                             </select>
                         </div>
-                        
                         <div class="form-group">
                             <label class="form-label" for="device_id">Устройство</label>
-                            <select class="form-select" id="device_id" name="device_id" required onchange="resetDisplay()">
-                                <option value="">Сначала выберите тип</option>
-                                <?php if ($deviceType === 'soil'): ?>
-                                    <?php foreach ($soilSenseDevices as $device): ?>
-                                        <option value="<?= safeHtml($device['device_id']) ?>" <?= $deviceId === $device['device_id'] ? 'selected' : '' ?>>
-                                            <?= safeHtml($device['name']) ?> (ID: <?= safeHtml($device['device_id']) ?>)
-                                        </option>
-                                    <?php endforeach; ?>
-                                <?php elseif ($deviceType === 'meteo'): ?>
-                                    <?php foreach ($meteoSenseDevices as $device): ?>
-                                        <option value="<?= safeHtml($device['device_id']) ?>" <?= $deviceId === $device['device_id'] ? 'selected' : '' ?>>
-                                            <?= safeHtml($device['name']) ?> (ID: <?= safeHtml($device['device_id']) ?>)
-                                        </option>
-                                    <?php endforeach; ?>
-                                <?php endif; ?>
+                            <select class="form-select" id="device_id" name="device_id" required>
+                                <option value="">-</option>
+                                <?php 
+                                    $devicesToList = [];
+                                    if ($deviceType === 'soil') {
+                                        $devicesToList = $soilSenseDevices;
+                                    } elseif ($deviceType === 'meteo') {
+                                        $devicesToList = $meteoSenseDevices;
+                                    }
+                                    foreach ($devicesToList as $device): 
+                                ?>
+                                    <option value="<?= safeHtml($device['device_id']) ?>" <?= $deviceId === $device['device_id'] ? 'selected' : '' ?>>
+                                        <?= safeHtml($device['name']) ?> (ID: <?= safeHtml($device['device_id']) ?>)
+                                    </option>
+                                <?php endforeach; ?>
                             </select>
                         </div>
                     </div>
@@ -596,25 +619,25 @@ function getRussianMonth($monthNum) {
                         <div class="form-group">
                             <label class="form-label" for="start_date">Дата начала</label>
                             <input type="date" class="form-input" id="start_date" name="start_date" 
-                                   value="<?= safeHtml($startDate) ?>" required onchange="resetDisplay()">
+                                   value="<?= safeHtml($startDate) ?>" required>
                         </div>
                         
                         <div class="form-group">
                             <label class="form-label" for="end_date">Дата окончания</label>
                             <input type="date" class="form-input" id="end_date" name="end_date" 
-                                   value="<?= safeHtml($endDate) ?>" required onchange="resetDisplay()">
+                                   value="<?= safeHtml($endDate) ?>" required>
                         </div>
                         
-                        <div class="form-group" style="display: flex; align-items: flex-end; margin-top: 35px; gap: 10px;">
+                        <div class="form-group" style="display: flex; align-items: flex-end; gap: 10px;">
                             <button type="submit" class="btn btn-primary">
                                 <i class="fas fa-search"></i> Показать данные
                             </button>
                         
-                            <button class="show-document-btn" id="show-document-btn-humidity" onclick="generatePDF('humidity-stats')" style="display: none;">
-                                <i class="fas fa-file-pdf" style="pointer-events: none;"></i>
+                            <button type="button" class="show-document-btn" id="show-document-btn-humidity" onclick="generatePDF('humidity-stats')" style="display: none;">
+                                <i class="fas fa-file-pdf"></i>
                             </button>
-                            <button class="show-document-btn" id="show-document-btn-meteo" onclick="generatePDF('meteo-stats')" style="display: none;">
-                                <i class="fas fa-file-pdf" style="pointer-events: none;"></i>
+                            <button type="button" class="show-document-btn" id="show-document-btn-meteo" onclick="generatePDF('meteo-stats')" style="display: none;">
+                                <i class="fas fa-file-pdf"></i>
                             </button>
                         </div>
                     </div>
@@ -775,7 +798,7 @@ function getRussianMonth($monthNum) {
                         </div>
                     <?php endif; ?>
                     
-                    <?php if ($deviceType && $deviceId): ?>
+                    <?php if ($deviceType && $deviceId && $startDate && $endDate): ?>
                         <div class="chart-info" id="chart-info-block" style="display: none;">
                             <div class="chart-title" style="display: none;">
                                 График наличия данных: <?= $deviceInfo ? safeHtml($deviceInfo['name']) : safeHtml($deviceId) ?>
@@ -812,6 +835,10 @@ function getRussianMonth($monthNum) {
                                 </div>
                             <?php endif; ?>
                         </div>
+                    <?php else: ?>
+                         <div class="no-data-message">
+                            <i class="fas fa-info-circle"></i> Выберите все параметры для отображения данных.
+                        </div>
                     <?php endif; ?>
                 </div>
             </div>
@@ -823,37 +850,6 @@ function getRussianMonth($monthNum) {
 <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-zoom/1.2.1/chartjs-plugin-zoom.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <script>
-function updateDeviceList() {
-    const deviceType = document.getElementById('device_type').value;
-    const deviceIdSelect = document.getElementById('device_id');
-    
-    deviceIdSelect.innerHTML = '';
-    
-    if (!deviceType) {
-        const option = document.createElement('option');
-        option.value = '';
-        option.textContent = 'Сначала выберите тип';
-        deviceIdSelect.appendChild(option);
-        return;
-    }
-
-    const devices = deviceType === 'soil' 
-        ? <?= json_encode($soilSenseDevices) ?> 
-        : <?= json_encode($meteoSenseDevices) ?>;
-    
-    const defaultOption = document.createElement('option');
-    defaultOption.value = '';
-    defaultOption.textContent = 'Выберите устройство';
-    deviceIdSelect.appendChild(defaultOption);
-    
-    devices.forEach(device => {
-        const option = document.createElement('option');
-        option.value = device.device_id;
-        option.textContent = device.name + ' (ID: ' + device.device_id + ')';
-        deviceIdSelect.appendChild(option);
-    });
-}
-
 function generatePDF(elementId) {
     const button = event.target;
     const originalText = button.innerHTML;
@@ -886,7 +882,6 @@ function generatePDF(elementId) {
     });
     
     Promise.all(imagePromises).then(() => {
-        // ИЗМЕНЕНИЕ: Формирование имени файла
         const now = new Date();
         const day = now.getDate().toString().padStart(2, '0');
         const month = (now.getMonth() + 1).toString().padStart(2, '0');
@@ -942,7 +937,6 @@ function generatePDF(elementId) {
     });
 }
 
-
 function resetDisplay() {
     const elementsToHide = [
         document.getElementById('humidity-stats'),
@@ -959,21 +953,54 @@ function resetDisplay() {
             el.style.display = 'none';
         }
     });
-
-    const oldChartCanvas = document.getElementById('dataChart');
-    if (oldChartCanvas) {
-        const parent = oldChartCanvas.parentNode;
-        if (parent) {
-            parent.removeChild(oldChartCanvas);
-            const newCanvas = document.createElement('canvas');
-            newCanvas.id = 'dataChart';
-            parent.appendChild(newCanvas);
-        }
-    }
 }
 
 document.addEventListener('DOMContentLoaded', function() {
+    const yearSelect = document.getElementById('year');
+    const typeSelect = document.getElementById('device_type');
+    const deviceSelect = document.getElementById('device_id');
+    const startDateInput = document.getElementById('start_date');
+    const endDateInput = document.getElementById('end_date');
+    const submitButton = document.querySelector('button[type="submit"]');
+
+    function setDateLimitsForYear() {
+        const selectedYear = yearSelect.value;
+        if (selectedYear) {
+            startDateInput.min = `${selectedYear}-01-01`;
+            startDateInput.max = `${selectedYear}-12-31`;
+            endDateInput.min = `${selectedYear}-01-01`;
+            endDateInput.max = `${selectedYear}-12-31`;
+        } else {
+            startDateInput.removeAttribute('min');
+            startDateInput.removeAttribute('max');
+            endDateInput.removeAttribute('min');
+            endDateInput.removeAttribute('max');
+        }
+    }
+
+    function toggleFilterStates() {
+        const yearSelected = yearSelect.value !== '';
+        const typeSelected = typeSelect.value !== '';
+        
+        typeSelect.disabled = !yearSelected;
+        deviceSelect.disabled = !yearSelected || !typeSelected;
+        startDateInput.disabled = !yearSelected;
+        endDateInput.disabled = !yearSelected;
+        
+        if (!yearSelected) {
+            typeSelect.value = '';
+            deviceSelect.innerHTML = '<option value="">-</option>';
+            startDateInput.value = '';
+            endDateInput.value = '';
+        }
+        if (yearSelected && !typeSelected) {
+             deviceSelect.innerHTML = '<option value="">-</option>';
+        }
+    }
+
     resetDisplay();
+    toggleFilterStates();
+    setDateLimitsForYear();
 
     <?php if ($showHumidityStats): ?>
         document.getElementById('show-document-btn-humidity').style.display = 'inline-flex';
@@ -1120,11 +1147,6 @@ document.addEventListener('DOMContentLoaded', function() {
             const delta = Math.sign(e.deltaY) * 100;
             chartContainer.scrollLeft += delta;
         });
-
-        //if (daysDiff > 30) {
-        //    const initialScale = 30 / daysDiff;
-        //    chart.zoomScale('x', { min: 0, max: initialScale });
-        //}
     <?php endif; ?>
 
     setTimeout(function() {
